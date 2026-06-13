@@ -4,12 +4,13 @@ import LoginPage from './components/auth/LoginPage'
 import Navbar from './components/layout/Navbar'
 import Sidebar from './components/layout/Sidebar'
 import StockPage from './components/stock/StockPage'
+import SortiePage from './components/stock/SortiePage'
 import TransfertPage from './components/stock/TransfertPage'
 import HistoriquePage from './components/history/HistoriquePage'
 import AdminPage from './components/admin/AdminPage'
 
 function AppInner() {
-  const { user, loading } = useAuth()
+  const { user, isAdmin, loading } = useAuth()
   const [page, setPage] = useState('stock')
 
   if (loading) {
@@ -22,20 +23,24 @@ function AppInner() {
 
   if (!user) return <LoginPage />
 
+  // Sécurité : bloquer l'accès à l'historique si non admin
+  const safePage = (page === 'historique' || page === 'admin') && !isAdmin ? 'stock' : page
+
   const pages = {
-    stock: <StockPage />,
-    historique: <HistoriquePage />,
-    transfert: <TransfertPage />,
-    admin: <AdminPage />,
+    stock:      <StockPage />,
+    sortie:     <SortiePage />,
+    transfert:  <TransfertPage />,
+    historique: isAdmin ? <HistoriquePage /> : <StockPage />,
+    admin:      isAdmin ? <AdminPage />      : <StockPage />,
   }
 
   return (
     <div className="flex flex-col h-screen">
       <Navbar />
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar page={page} setPage={setPage} />
+        <Sidebar page={safePage} setPage={setPage} />
         <main className="flex-1 overflow-hidden">
-          {pages[page] || <StockPage />}
+          {pages[safePage] || <StockPage />}
         </main>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Plus, Trash2, Bell, Users, MapPin, Flame } from 'lucide-react'
+import { Plus, Trash2, Bell, Users, MapPin, Flame, UserPlus } from 'lucide-react'
 import Modal from '../shared/Modal'
 
 export default function AdminPage() {
@@ -18,6 +18,15 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false)
   const [seuilModal, setSeuilModal] = useState(null) // { bougie, lieu, current }
   const [seuilValue, setSeuilValue] = useState('')
+
+  // Création utilisateur
+  const [showNewUser, setShowNewUser] = useState(false)
+  const [newUserEmail, setNewUserEmail] = useState('')
+  const [newUserPassword, setNewUserPassword] = useState('')
+  const [newUserRole, setNewUserRole] = useState('utilisateur')
+  const [newUserError, setNewUserError] = useState('')
+  const [newUserSuccess, setNewUserSuccess] = useState('')
+  const [creatingUser, setCreatingUser] = useState(false)
 
   async function loadAll() {
     setLoading(true)
@@ -93,6 +102,55 @@ export default function AdminPage() {
   }
 
   // ---- UTILISATEURS ----
+  async function createUser() {
+    setNewUserError('')
+    setNewUserSuccess('')
+    if (!newUserEmail.trim() || !newUserPassword.trim()) {
+      setNewUserError('Email et mot de passe requis.')
+      return
+    }
+    if (newUserPassword.length < 6) {
+      setNewUserError('Le mot de passe doit faire au moins 6 caractères.')
+      return
+    }
+    setCreatingUser(true)
+    const { data, error } = await supabase.auth.admin
+      ? // Tentative via admin API (nécessite service_role key, non disponible côté client)
+        { data: null, error: { message: 'fallback' } }
+      : { data: null, error: { message: 'fallback' } }
+
+    // Fallback : création via signUp standard + mise à jour du rôle
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email: newUserEmail.trim(),
+      password: newUserPassword.trim(),
+      options: { emailRedirectTo: window.location.origin }
+    })
+
+    if (signUpError) {
+      setNewUserError(signUpError.message)
+      setCreatingUser(false)
+      return
+    }
+
+    // Si rôle admin demandé, mettre à jour après création
+    if (newUserRole === 'admin' && signUpData?.user) {
+      await supabase.from('profils').update({ role: 'admin' }).eq('id', signUpData.user.id)
+    }
+
+    setNewUserSuccess(`Compte créé pour ${newUserEmail.trim()}. L'utilisateur recevra un email de confirmation.`)
+    setNewUserEmail('')
+    setNewUserPassword('')
+    setNewUserRole('utilisateur')
+    setCreatingUser(false)
+    loadAll()
+  }
+
+  async function deleteUser(profil) {
+    if (!window.confirm(`Supprimer le compte de ${profil.email} ? Cette action est irréversible.`)) return
+    await supabase.from('profils').delete().eq('id', profil.id)
+    loadAll()
+  }
+
   async function toggleRole(profil) {
     const newRole = profil.role === 'admin' ? 'utilisateur' : 'admin'
     await supabase.from('profils').update({ role: newRole }).eq('id', profil.id)
@@ -261,35 +319,110 @@ export default function AdminPage() {
 
         {/* ---- UTILISATEURS ---- */}
         {tab === 'users' && (
-          <div className="card max-w-lg">
-            <p className="text-sm text-stone-500 mb-4">
-              Les comptes sont créés lors de la première connexion. Basculer le rôle d'un utilisateur en administrateur lui donne accès à ce panneau.
-            </p>
-            <ul className="divide-y divide-stone-100">
-              {profils.map(p => (
-                <li key={p.id} className="flex items-center justify-between py-3">
-                  <div>
-                    <p className="font-medium text-stone-800 text-sm">{p.email}</p>
-                    <p className="text-xs text-stone-400">
-                      Inscrit le {new Date(p.created_at).toLocaleDateString('fr-FR')}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => toggleRole(p)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                      p.role === 'admin'
-                        ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                        : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-                    }`}
-                  >
-                    {p.role === 'admin' ? '⭐ Administrateur' : 'Utilisateur'}
-                  </button>
-                </li>
-              ))}
-            </ul>
+          <div className="max-w-lg space-y-4">
+            {/* Bouton créer */}
+            <div className="flex justify-end">
+              <button
+                onClick={() => { setShowNewUser(true); setNewUserError(''); setNewUserSuccess('') }}
+                className="btn-primary flex items-center gap-2 text-sm"
+              >
+                <UserPlus className="w-4 h-4" /> Créer un compte
+              </button>
+            </div>
+
+            {/* Liste */}
+            <div className="card">
+              <p className="text-sm text-stone-500 mb-3">
+                {profils.length} compte{profils.length !== 1 ? 's' : ''} enregistré{profils.length !== 1 ? 's' : ''}
+              </p>
+              <ul className="divide-y divide-stone-100">
+                {profils.map(p => (
+                  <li key={p.id} className="flex items-center justify-between py-3 gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-stone-800 text-sm truncate">{p.email}</p>
+                      <p className="text-xs text-stone-400">
+                        Créé le {new Date(p.created_at).toLocaleDateString('fr-FR')}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => toggleRole(p)}
+                        className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                          p.role === 'admin'
+                            ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                            : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                        }`}
+                      >
+                        {p.role === 'admin' ? '⭐ Admin' : 'Utilisateur'}
+                      </button>
+                      <button
+                        onClick={() => deleteUser(p)}
+                        className="text-stone-300 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors"
+                        title="Supprimer ce compte"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
       </div>
+
+      {/* Modal création utilisateur */}
+      {showNewUser && (
+        <Modal title="Créer un compte utilisateur" onClose={() => setShowNewUser(false)} size="sm">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Email</label>
+              <input
+                type="email"
+                className="input-field"
+                placeholder="membre@paroisse.fr"
+                value={newUserEmail}
+                onChange={e => setNewUserEmail(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Mot de passe provisoire</label>
+              <input
+                type="text"
+                className="input-field"
+                placeholder="Au moins 6 caractères"
+                value={newUserPassword}
+                onChange={e => setNewUserPassword(e.target.value)}
+              />
+              <p className="text-xs text-stone-400 mt-1">À communiquer à l'utilisateur, qui pourra le changer.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Rôle</label>
+              <select className="input-field" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
+                <option value="utilisateur">Utilisateur</option>
+                <option value="admin">Administrateur</option>
+              </select>
+            </div>
+
+            {newUserError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">{newUserError}</div>
+            )}
+            {newUserSuccess && (
+              <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">{newUserSuccess}</div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setShowNewUser(false)} className="btn-secondary flex-1">Fermer</button>
+              {!newUserSuccess && (
+                <button onClick={createUser} disabled={creatingUser} className="btn-primary flex-1">
+                  {creatingUser ? 'Création…' : 'Créer le compte'}
+                </button>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Modal seuil */}
       {seuilModal && (

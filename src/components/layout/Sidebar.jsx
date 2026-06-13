@@ -1,11 +1,12 @@
-import { BarChart3, History, Package, Settings, ArrowLeftRight } from 'lucide-react'
+import { History, Package, Settings, ArrowLeftRight, MinusCircle } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 
 const navItems = [
-  { id: 'stock',     label: 'Stock',      icon: Package },
-  { id: 'historique',label: 'Historique', icon: History },
-  { id: 'transfert', label: 'Transfert',  icon: ArrowLeftRight },
-  { id: 'admin',     label: 'Admin',      icon: Settings, adminOnly: true },
+  { id: 'stock',      label: 'Stock',           icon: Package },
+  { id: 'sortie',     label: 'Sortie de stock',  icon: MinusCircle },
+  { id: 'transfert',  label: 'Transfert',        icon: ArrowLeftRight },
+  { id: 'historique', label: 'Historique',       icon: History,  adminOnly: true },
+  { id: 'admin',      label: 'Admin',            icon: Settings, adminOnly: true },
 ]
 
 export default function Sidebar({ page, setPage }) {

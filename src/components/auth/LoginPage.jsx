@@ -5,23 +5,14 @@ import { Flame } from 'lucide-react'
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [mode, setMode] = useState('login') // 'login' | 'register'
   const [error, setError] = useState('')
-  const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit() {
     setError('')
-    setMessage('')
     setLoading(true)
-    if (mode === 'login') {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) setError('Email ou mot de passe incorrect.')
-    } else {
-      const { error } = await supabase.auth.signUp({ email, password })
-      if (error) setError(error.message)
-      else setMessage('Compte créé ! Vérifiez votre email pour confirmer votre inscription.')
-    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) setError('Email ou mot de passe incorrect.')
     setLoading(false)
   }
 
@@ -35,22 +26,6 @@ export default function LoginPage() {
           </div>
           <h1 className="text-2xl font-serif font-bold text-stone-800">Bougies Paroisse</h1>
           <p className="text-stone-500 text-sm mt-1">Gestion du stock de bougies</p>
-        </div>
-
-        {/* Onglets */}
-        <div className="flex bg-stone-100 rounded-lg p-1 mb-6">
-          <button
-            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'login' ? 'bg-white shadow-sm text-stone-800' : 'text-stone-500'}`}
-            onClick={() => setMode('login')}
-          >
-            Connexion
-          </button>
-          <button
-            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'register' ? 'bg-white shadow-sm text-stone-800' : 'text-stone-500'}`}
-            onClick={() => setMode('register')}
-          >
-            Créer un compte
-          </button>
         </div>
 
         {/* Champs */}
@@ -79,15 +54,9 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Messages */}
         {error && (
           <div className="mt-4 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
             {error}
-          </div>
-        )}
-        {message && (
-          <div className="mt-4 bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">
-            {message}
           </div>
         )}
 
@@ -96,8 +65,12 @@ export default function LoginPage() {
           onClick={handleSubmit}
           disabled={loading || !email || !password}
         >
-          {loading ? 'Chargement…' : mode === 'login' ? 'Se connecter' : 'Créer mon compte'}
+          {loading ? 'Connexion…' : 'Se connecter'}
         </button>
+
+        <p className="text-center text-xs text-stone-400 mt-4">
+          Accès réservé — contactez un administrateur pour obtenir un compte.
+        </p>
       </div>
     </div>
   )

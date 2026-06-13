@@ -155,7 +155,9 @@ export default function HistoriquePage() {
                     </td>
                     <td className="py-3 pr-4 text-right font-medium text-stone-800">{m.quantite}</td>
                     <td className="py-3 pr-4 text-stone-500 italic">{m.motif || '—'}</td>
-                    <td className="py-3 text-stone-400 text-xs">{m.user_email || '—'}</td>
+                    <td className="py-3 text-stone-600 text-xs font-medium">
+                      <span className="bg-stone-100 px-2 py-0.5 rounded-full">{m.user_email || '—'}</span>
+                    </td>
                   </tr>
                 )
               })}
