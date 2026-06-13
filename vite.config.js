@@ -23,21 +23,24 @@ function AppInner() {
 
   if (!user) return <LoginPage />
 
+  // Sécurité : bloquer l'accès à l'historique si non admin
+  const safePage = (page === 'historique' || page === 'admin') && !isAdmin ? 'stock' : page
+
   const pages = {
-    stock: <StockPage />,
-    sortie: <SortiePage />,
+    stock:      <StockPage />,
+    sortie:     <SortiePage />,
+    transfert:  <TransfertPage />,
     historique: isAdmin ? <HistoriquePage /> : <StockPage />,
-    transfert: <TransfertPage />,
-    admin: <AdminPage />,
+    admin:      isAdmin ? <AdminPage />      : <StockPage />,
   }
 
   return (
     <div className="flex flex-col h-screen">
       <Navbar />
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar page={page} setPage={setPage} />
+        <Sidebar page={safePage} setPage={setPage} />
         <main className="flex-1 overflow-hidden">
-          {pages[page] || <StockPage />}
+          {pages[safePage] || <StockPage />}
         </main>
       </div>
     </div>

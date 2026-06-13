@@ -5,7 +5,7 @@ const navItems = [
   { id: 'stock',      label: 'Stock',           icon: Package },
   { id: 'sortie',     label: 'Sortie de stock',  icon: MinusCircle },
   { id: 'transfert',  label: 'Transfert',        icon: ArrowLeftRight },
-  { id: 'historique', label: 'Historique',       icon: History, adminOnly: true },
+  { id: 'historique', label: 'Historique',       icon: History,  adminOnly: true },
   { id: 'admin',      label: 'Admin',            icon: Settings, adminOnly: true },
 ]
 
