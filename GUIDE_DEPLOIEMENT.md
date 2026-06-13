@@ -1,186 +1,164 @@
-# 🕯️ Guide de déploiement — Gestion des Bougies Paroisse
+import { useState, useRef } from 'react'
+import { supabase } from '../../lib/supabase'
+import Modal from '../shared/Modal'
+import { Upload, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
+import Papa from 'papaparse'
 
-Ce guide vous accompagne pas à pas pour mettre l'application en ligne.
-**Niveau requis : débutant.** Chaque étape est expliquée simplement.
+export default function ImportCSV({ lieux, bougies, userEmail, onClose, onDone }) {
+  const [rows, setRows] = useState([])
+  const [parsed, setParsed] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const fileRef = useRef(null)
 
----
+  function handleFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    Papa.parse(file, {
+      delimiter: ';',
+      skipEmptyLines: true,
+      complete: ({ data }) => {
+        const validated = data.map((row, i) => {
+          const [nom_raw, lieu_raw, qte_raw] = row.map(c => c?.trim())
+          const bougie = bougies.find(b => b.nom.toLowerCase() === nom_raw?.toLowerCase())
+          const lieu = lieux.find(l => l.nom.toLowerCase() === lieu_raw?.toLowerCase())
+          const quantite = parseInt(qte_raw)
+          const errors = []
+          if (!bougie) errors.push(`Bougie inconnue : "${nom_raw}"`)
+          if (!lieu) errors.push(`Lieu inconnu : "${lieu_raw}"`)
+          if (isNaN(quantite) || quantite <= 0) errors.push(`Quantité invalide : "${qte_raw}"`)
+          return {
+            line: i + 1,
+            nom_raw, lieu_raw, qte_raw,
+            bougie, lieu, quantite,
+            errors,
+            valid: errors.length === 0,
+          }
+        })
+        setRows(validated)
+        setParsed(true)
+      }
+    })
+  }
 
-## Étape 1 — Créer un compte Supabase (base de données)
+  async function handleImport() {
+    setImporting(true)
+    const validRows = rows.filter(r => r.valid)
 
-1. Rendez-vous sur **https://supabase.com**
-2. Cliquez sur **"Start your project"** → **"Sign up"**
-3. Créez un compte avec votre email (ou via GitHub)
-4. Une fois connecté, cliquez sur **"New project"**
-5. Remplissez :
-   - **Name** : `bougies-paroisse` (ou le nom que vous souhaitez)
-   - **Database password** : choisissez un mot de passe fort et **notez-le**
-   - **Region** : `West EU (Ireland)` (le plus proche de la France)
-6. Cliquez sur **"Create new project"** et attendez ~1 minute
+    for (const r of validRows) {
+      // Récupérer stock actuel
+      const { data: current } = await supabase
+        .from('stock_par_lieu')
+        .select('quantite, seuil_alerte')
+        .eq('bougie_id', r.bougie.id)
+        .eq('lieu_id', r.lieu.id)
+        .single()
 
----
+      const newQte = (current?.quantite || 0) + r.quantite
 
-## Étape 2 — Créer les tables (script SQL)
+      await supabase.from('stock_par_lieu').upsert({
+        bougie_id: r.bougie.id,
+        lieu_id: r.lieu.id,
+        quantite: newQte,
+        seuil_alerte: current?.seuil_alerte ?? null,
+      }, { onConflict: 'bougie_id,lieu_id' })
 
-1. Dans votre projet Supabase, cliquez sur **"SQL Editor"** dans le menu gauche
-2. Cliquez sur **"New query"**
-3. Ouvrez le fichier `supabase_schema.sql` fourni avec l'application
-4. Copiez **tout son contenu** et collez-le dans l'éditeur SQL
-5. Cliquez sur **"Run"** (bouton vert en bas à droite)
-6. Vous devez voir : `Success. No rows returned`
+      await supabase.from('mouvements').insert({
+        bougie_id: r.bougie.id,
+        lieu_id: r.lieu.id,
+        type: 'import_csv',
+        quantite: r.quantite,
+        motif: 'Import CSV',
+        user_email: userEmail,
+      })
+    }
 
-> ⚠️ Si vous voyez une erreur, vérifiez que vous avez bien tout copié depuis le début jusqu'à la fin du fichier.
+    setImporting(false)
+    onDone()
+  }
 
----
+  const validCount = rows.filter(r => r.valid).length
+  const errorCount = rows.filter(r => !r.valid).length
 
-## Étape 3 — Récupérer vos clés Supabase
+  return (
+    <Modal title="Import CSV" onClose={onClose} size="lg">
+      <div className="space-y-4">
+        {/* Zone de dépôt / sélection */}
+        <div
+          className="border-2 border-dashed border-stone-300 rounded-xl p-8 text-center cursor-pointer hover:border-amber-400 transition-colors"
+          onClick={() => fileRef.current?.click()}
+        >
+          <Upload className="w-8 h-8 text-stone-400 mx-auto mb-2" />
+          <p className="text-stone-600 font-medium">Cliquer pour sélectionner un fichier CSV</p>
+          <p className="text-stone-400 text-sm mt-1">Format attendu : <code className="bg-stone-100 px-1 rounded">nom_bougie ; lieu ; quantite</code></p>
+          <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFile} />
+        </div>
 
-1. Dans le menu gauche, cliquez sur **"Project Settings"** (icône engrenage)
-2. Puis cliquez sur **"API"**
-3. Notez les deux valeurs suivantes :
-   - **Project URL** : ressemble à `https://abcdefghij.supabase.co`
-   - **anon public key** : longue chaîne de caractères commençant par `eyJ...`
+        {/* Résultats de validation */}
+        {parsed && (
+          <>
+            <div className="flex gap-4">
+              <div className="flex items-center gap-2 bg-green-50 text-green-700 px-3 py-2 rounded-lg text-sm">
+                <CheckCircle className="w-4 h-4" />
+                <span>{validCount} ligne{validCount !== 1 ? 's' : ''} valide{validCount !== 1 ? 's' : ''}</span>
+              </div>
+              {errorCount > 0 && (
+                <div className="flex items-center gap-2 bg-red-50 text-red-700 px-3 py-2 rounded-lg text-sm">
+                  <XCircle className="w-4 h-4" />
+                  <span>{errorCount} erreur{errorCount !== 1 ? 's' : ''}</span>
+                </div>
+              )}
+            </div>
 
----
+            <div className="max-h-64 overflow-y-auto rounded-lg border border-stone-200">
+              <table className="w-full text-sm">
+                <thead className="bg-stone-50 sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-stone-500 text-xs w-10">#</th>
+                    <th className="text-left px-3 py-2 font-medium text-stone-500 text-xs">Bougie</th>
+                    <th className="text-left px-3 py-2 font-medium text-stone-500 text-xs">Lieu</th>
+                    <th className="text-right px-3 py-2 font-medium text-stone-500 text-xs">Qté</th>
+                    <th className="text-left px-3 py-2 font-medium text-stone-500 text-xs">Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.line} className={`border-t border-stone-100 ${r.valid ? '' : 'bg-red-50'}`}>
+                      <td className="px-3 py-2 text-stone-400">{r.line}</td>
+                      <td className="px-3 py-2">{r.nom_raw}</td>
+                      <td className="px-3 py-2">{r.lieu_raw}</td>
+                      <td className="px-3 py-2 text-right">{r.qte_raw}</td>
+                      <td className="px-3 py-2">
+                        {r.valid
+                          ? <span className="text-green-600 flex items-center gap-1"><CheckCircle className="w-3 h-3" /> OK</span>
+                          : <span className="text-red-600 text-xs">{r.errors.join(' · ')}</span>
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-## Étape 4 — Préparer le fichier de configuration
+            {errorCount > 0 && (
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <p>Les lignes en erreur ne seront pas importées. Seules les {validCount} lignes valides seront traitées.</p>
+              </div>
+            )}
 
-1. Dans le dossier de l'application, trouvez le fichier `.env.example`
-2. **Copiez-le** et renommez la copie `.env`
-3. Ouvrez `.env` avec un éditeur de texte (Notepad, TextEdit…)
-4. Remplacez les valeurs :
-   ```
-   VITE_SUPABASE_URL=https://VOTRE_PROJECT_ID.supabase.co
-   VITE_SUPABASE_ANON_KEY=VOTRE_ANON_KEY
-   ```
-   Par vos vraies valeurs récupérées à l'étape 3.
-
----
-
-## Étape 5 — Créer un compte GitHub (pour héberger le code)
-
-> Si vous avez déjà GitHub, passez à l'étape 6.
-
-1. Rendez-vous sur **https://github.com**
-2. Créez un compte gratuit
-3. Vérifiez votre email
-
----
-
-## Étape 6 — Mettre le code sur GitHub
-
-### Option A — Via l'interface web GitHub (recommandé pour débutants)
-
-1. Connectez-vous sur GitHub
-2. Cliquez sur **"New repository"** (bouton vert ou icône +)
-3. Nommez-le `bougies-paroisse`, laissez **Public**
-4. Cliquez **"Create repository"**
-5. Cliquez sur **"uploading an existing file"**
-6. Glissez-déposez **tous les fichiers du dossier** `candles-app`
-7. Cliquez **"Commit changes"**
-
-### Option B — Via terminal (si vous êtes à l'aise)
-
-```bash
-cd candles-app
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/VOTRE_NOM/bougies-paroisse.git
-git push -u origin main
-```
-
----
-
-## Étape 7 — Créer un compte Netlify et déployer
-
-1. Rendez-vous sur **https://www.netlify.com**
-2. Cliquez sur **"Sign up"** → choisissez **"Sign up with GitHub"**
-3. Autorisez Netlify à accéder à GitHub
-4. Cliquez sur **"Add new site"** → **"Import an existing project"**
-5. Cliquez sur **"Deploy with GitHub"**
-6. Sélectionnez votre dépôt `bougies-paroisse`
-7. Dans les paramètres de build, vérifiez :
-   - **Build command** : `npm run build`
-   - **Publish directory** : `dist`
-8. Cliquez sur **"Deploy site"**
-
----
-
-## Étape 8 — Ajouter les variables d'environnement sur Netlify
-
-> Cette étape est **cruciale** — sans elle, l'application ne peut pas se connecter à Supabase.
-
-1. Dans votre site Netlify, allez dans **"Site configuration"** → **"Environment variables"**
-2. Cliquez **"Add a variable"** et ajoutez :
-   - **Key** : `VITE_SUPABASE_URL` → **Value** : votre URL Supabase
-   - **Key** : `VITE_SUPABASE_ANON_KEY` → **Value** : votre clé anon
-3. Cliquez **"Save"**
-4. Retournez dans **"Deploys"** et cliquez **"Trigger deploy"** → **"Deploy site"**
-
-Après quelques secondes, votre site est en ligne à une adresse du type :
-`https://amazing-name-123456.netlify.app`
-
----
-
-## Étape 9 — Créer le premier compte administrateur
-
-1. Ouvrez votre site sur Netlify
-2. Cliquez sur **"Créer un compte"** et enregistrez-vous avec votre email
-3. **Confirmez votre email** en cliquant sur le lien reçu
-4. Connectez-vous à votre application
-5. Retournez dans **Supabase** → **"SQL Editor"** → **"New query"**
-6. Exécutez cette requête en remplaçant `votre@email.fr` par votre vrai email :
-
-```sql
-UPDATE profils
-SET role = 'admin'
-WHERE email = 'votre@email.fr';
-```
-
-7. Cliquez **"Run"** — vous devriez voir `1 row affected`
-8. **Rechargez** votre application : le menu Admin apparaît maintenant
-
----
-
-## Étape 10 — Configurer les paramètres Supabase Auth
-
-Pour permettre aux membres de créer leur compte :
-
-1. Dans Supabase → **"Authentication"** → **"Providers"**
-2. Vérifiez que **Email** est activé
-3. Dans **"Authentication"** → **"Email Templates"**, vous pouvez personnaliser les emails de confirmation
-
----
-
-## ✅ L'application est prête !
-
-**Ce que vous pouvez faire maintenant :**
-
-- Aller dans **Admin → Bougies** pour ajouter vos références
-- Aller dans **Admin → Lieux** pour personnaliser les lieux (Église, Chapelle, Sacristie sont déjà créés)
-- Aller dans **Admin → Utilisateurs** pour promouvoir d'autres membres en admin
-- Partager l'URL Netlify avec vos bénévoles
-
----
-
-## 🔧 Dépannage fréquent
-
-| Problème | Solution |
-|----------|----------|
-| Page blanche après déploiement | Vérifiez les variables d'environnement sur Netlify |
-| "Invalid API key" | Vérifiez que `VITE_SUPABASE_ANON_KEY` est correct |
-| Pas de confirmation d'email | Vérifiez les spams ou désactivez la confirmation dans Supabase Auth Settings |
-| Erreur 404 en navigation | Vérifiez que le fichier `_redirects` est bien dans le dossier `public/` |
-| Menu Admin absent | Exécutez la requête SQL de l'étape 9 |
-
----
-
-## 📞 Mise à jour de l'application
-
-Si vous recevez une nouvelle version des fichiers :
-1. Remplacez les fichiers dans votre dépôt GitHub (glisser-déposer)
-2. Netlify redéploie automatiquement en quelques secondes
-
----
-
-*Guide rédigé pour un déploiement initial — Version 1.0*
+            <div className="flex gap-3 pt-2">
+              <button onClick={onClose} className="btn-secondary flex-1">Annuler</button>
+              <button
+                onClick={handleImport}
+                disabled={importing || validCount === 0}
+                className="btn-primary flex-1"
+              >
+                {importing ? 'Import en cours…' : `Importer ${validCount} ligne${validCount !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  )
+}
