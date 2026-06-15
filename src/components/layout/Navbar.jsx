@@ -1,4 +1,4 @@
-import { Flame, LogOut, Shield, User } from 'lucide-react'
+import { LogOut, Shield, User } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 
@@ -11,12 +11,10 @@ export default function Navbar() {
 
   return (
     <nav className="bg-white border-b border-stone-200 px-4 py-3 flex items-center justify-between sticky top-0 z-30 shadow-sm">
-      <div className="flex items-center gap-2">
-        <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
-          <Flame className="w-5 h-5 text-amber-600" />
-        </div>
+      <div className="flex items-center gap-2.5">
+        <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
         <span className="font-serif font-bold text-stone-800 text-lg hidden sm:block">
-          Bougies Paroisse
+          Gestion de Stock Paroisse
         </span>
       </div>
 
