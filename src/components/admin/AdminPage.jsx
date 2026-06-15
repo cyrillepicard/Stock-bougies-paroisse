@@ -586,68 +586,66 @@ export default function AdminPage() {
                       groups[famId].sfs[sfId].bougies.push(b)
                     })
 
-                    return Object.values(groups)
-                      .sort((a, z) => a.order.localeCompare(z.order))
-                      .map(groupe => {
-                        const sfsSorted = Object.values(groupe.sfs).sort((a, b) => {
-                          if (!a.nom && !b.nom) return 0
-                          if (!a.nom) return -1
-                          if (!b.nom) return 1
-                          return a.nom.localeCompare(b.nom)
-                        })
-                        return sfsSorted.map((sfGroup, sfIdx) => (
-                          <>
-                            {sfIdx === 0 && (
-                              <tr key={'fam-' + groupe.nom} className="bg-amber-50 border-b border-amber-100">
-                                <td colSpan="5" className="py-2 px-3">
-                                  <span className="flex items-center gap-2 text-amber-800 font-semibold text-xs uppercase tracking-wide">
-                                    <Tag className="w-3.5 h-3.5" /> {groupe.nom}
-                                  </span>
-                                </td>
-                              </tr>
-                            )}
-                            {sfGroup.nom && (
-                              <tr key={'sf-' + sfGroup.nom} className="bg-stone-50 border-b border-stone-100">
-                                <td colSpan="5" className="py-1.5 pl-7 text-xs text-stone-500 font-medium">
-                                  › {sfGroup.nom}
-                                </td>
-                              </tr>
-                            )}
-                            {sfGroup.bougies.map(b => (
-                              <tr key={b.id} className="border-b border-stone-100 hover:bg-stone-50">
-                                <td className="py-2.5 pr-3 pl-7">
-                                  {b.photo_url
-                                    ? <img src={b.photo_url} alt={b.nom} className="w-9 h-9 rounded-lg object-cover border border-stone-200" />
-                                    : <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center">
-                                        <Flame className="w-4 h-4 text-amber-300" />
-                                      </div>
-                                  }
-                                </td>
-                                <td className="py-2.5 pr-4 font-medium text-stone-800 whitespace-nowrap">{b.nom}</td>
-                                <td className="py-2.5 pr-4 text-stone-500 text-xs">{b.description || '—'}</td>
-                                <td className="py-2.5 pr-4 text-center">
-                                  {b.qte_mini !== null && b.qte_mini !== undefined
-                                    ? <span className="text-xs text-blue-600 font-medium">≥ {b.qte_mini}</span>
-                                    : <span className="text-stone-300">—</span>}
-                                </td>
-                                <td className="py-2.5 text-right">
-                                  <div className="flex gap-1 justify-end">
-                                    <button onClick={() => openEditBougie(b)}
-                                      className="text-stone-400 hover:text-amber-600 p-1 rounded hover:bg-amber-50 transition-colors" title="Modifier">
-                                      <Pencil className="w-4 h-4" />
-                                    </button>
-                                    <button onClick={() => deleteBougie(b.id)}
-                                      className="text-stone-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors" title="Supprimer">
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
+                    const famGroups = Object.values(groups).sort((a, z) => a.order.localeCompare(z.order))
+                    const rows = []
+                    famGroups.forEach(groupe => {
+                      const sfsSorted = Object.values(groupe.sfs).sort((a, b) => {
+                        if (!a.nom && !b.nom) return 0
+                        if (!a.nom) return -1
+                        if (!b.nom) return 1
+                        return a.nom.localeCompare(b.nom)
+                      })
+                      sfsSorted.forEach((sfGroup, sfIdx) => {
+                        if (sfIdx === 0) rows.push(
+                          <tr key={'fam-' + groupe.nom} className="bg-amber-50 border-b border-amber-100">
+                            <td colSpan="5" className="py-2 px-3">
+                              <span className="flex items-center gap-2 text-amber-800 font-semibold text-xs uppercase tracking-wide">
+                                <Tag className="w-3.5 h-3.5" /> {groupe.nom}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                        if (sfGroup.nom) rows.push(
+                          <tr key={'sf-' + groupe.nom + sfGroup.nom} className="bg-stone-50 border-b border-stone-100">
+                            <td colSpan="5" className="py-1.5 pl-7 text-xs text-stone-500 font-medium">
+                              › {sfGroup.nom}
+                            </td>
+                          </tr>
+                        )
+                        sfGroup.bougies.forEach(b => rows.push(
+                          <tr key={b.id} className="border-b border-stone-100 hover:bg-stone-50">
+                            <td className="py-2.5 pr-3 pl-7">
+                              {b.photo_url
+                                ? <img src={b.photo_url} alt={b.nom} className="w-9 h-9 rounded-lg object-cover border border-stone-200" />
+                                : <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center">
+                                    <Flame className="w-4 h-4 text-amber-300" />
                                   </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </>
+                              }
+                            </td>
+                            <td className="py-2.5 pr-4 font-medium text-stone-800 whitespace-nowrap">{b.nom}</td>
+                            <td className="py-2.5 pr-4 text-stone-500 text-xs">{b.description || '—'}</td>
+                            <td className="py-2.5 pr-4 text-center">
+                              {b.qte_mini !== null && b.qte_mini !== undefined
+                                ? <span className="text-xs text-blue-600 font-medium">≥ {b.qte_mini}</span>
+                                : <span className="text-stone-300">—</span>}
+                            </td>
+                            <td className="py-2.5 text-right">
+                              <div className="flex gap-1 justify-end">
+                                <button onClick={() => openEditBougie(b)}
+                                  className="text-stone-400 hover:text-amber-600 p-1 rounded hover:bg-amber-50 transition-colors" title="Modifier">
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button onClick={() => deleteBougie(b.id)}
+                                  className="text-stone-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors" title="Supprimer">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
                         ))
                       })
-                      )
+                    })
+                    return rows
                   })()}
                 </tbody>
               </table>
