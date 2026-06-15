@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
-import { AlertTriangle, Download, Upload, Plus, Minus, MapPin, Globe, ArrowUpDown, ArrowUp, ArrowDown, Pencil } from 'lucide-react'
+import { AlertTriangle, Download, Upload, Plus, MapPin, Globe, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Tag } from 'lucide-react'
 import Modal from '../shared/Modal'
 import ImportCSV from './ImportCSV'
 import Papa from 'papaparse'
@@ -28,8 +28,14 @@ export default function StockPage() {
   const [lieux, setLieux] = useState([])
   const [bougies, setBougies] = useState([])
   const [stock, setStock] = useState([])
+  const [familles, setFamilles] = useState([])
+  const [sousFamilles, setSousFamilles] = useState([])
   const [selectedLieu, setSelectedLieu] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  // Filtres famille/sous-famille
+  const [filterFamilleId, setFilterFamilleId] = useState('')
+  const [filterSousFamilleId, setFilterSousFamilleId] = useState('')
 
   // Tri
   const [sortColGlobal, setSortColGlobal] = useState('nom')
@@ -48,14 +54,18 @@ export default function StockPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true)
-    const [{ data: l }, { data: b }, { data: s }] = await Promise.all([
+    const [{ data: l }, { data: b }, { data: s }, { data: f }, { data: sf }] = await Promise.all([
       supabase.from('lieux').select('*').order('nom'),
-      supabase.from('bougies').select('*').order('nom'),
-      supabase.from('stock_par_lieu').select('*, bougies(nom, description), lieux(nom)'),
+      supabase.from('bougies').select('*, familles(nom), sous_familles(nom)').order('nom'),
+      supabase.from('stock_par_lieu').select('*, bougies(nom, description, famille_id, sous_famille_id, familles(nom), sous_familles(nom)), lieux(nom)'),
+      supabase.from('familles').select('*').order('nom'),
+      supabase.from('sous_familles').select('*').order('nom'),
     ])
     setLieux(l || [])
     setBougies(b || [])
     setStock(s || [])
+    setFamilles(f || [])
+    setSousFamilles(sf || [])
     if (!selectedLieu && l?.length) setSelectedLieu(l[0].id)
     setLoading(false)
   }, [])
@@ -78,10 +88,18 @@ export default function StockPage() {
     else { setCol(col); setDir('asc') }
   }
 
+  // ---- Filtre famille/sous-famille ----
+  function matchesFamFilter(bougie) {
+    if (!filterFamilleId) return true
+    if (bougie.famille_id !== filterFamilleId) return false
+    if (filterSousFamilleId && bougie.sous_famille_id !== filterSousFamilleId) return false
+    return true
+  }
+
   // ---- Vue globale ----
   function getGlobalStock() {
     const totals = {}
-    bougies.forEach(b => {
+    bougies.filter(matchesFamFilter).forEach(b => {
       totals[b.id] = { bougie: b, nom: b.nom, description: b.description || '', total: 0, parLieu: {}, alertes: [] }
     })
     stock.forEach(s => {
@@ -98,14 +116,34 @@ export default function StockPage() {
   // ---- Vue par lieu ----
   function getLieuStock() {
     const rows = stock
-      .filter(s => s.lieu_id === selectedLieu)
+      .filter(s => s.lieu_id === selectedLieu && matchesFamFilter(s.bougies || {}))
       .map(s => ({
         ...s,
         nom: s.bougies?.nom || '',
         description: s.bougies?.description || '',
+        famille_id: s.bougies?.famille_id,
+        sous_famille_id: s.bougies?.sous_famille_id,
         alerte: s.seuil_alerte !== null && s.quantite <= s.seuil_alerte,
       }))
     return applySort(rows, sortColLieu, sortDirLieu)
+  }
+
+  // ---- Groupement par famille/sous-famille ----
+  function groupByFamille(rows) {
+    const SANS_FAMILLE = '__sans_famille__'
+    const groups = {}
+    rows.forEach(row => {
+      const bougie = row.bougie || row
+      const famId = bougie.famille_id || SANS_FAMILLE
+      const famNom = bougie.familles?.nom || (famId === SANS_FAMILLE ? 'Sans famille' : famId)
+      const sfId = bougie.sous_famille_id || '__sans_sf__'
+      const sfNom = bougie.sous_familles?.nom || null
+
+      if (!groups[famId]) groups[famId] = { nom: famNom, sousFamilles: {}, order: famId === SANS_FAMILLE ? 'zzz' : famNom }
+      if (!groups[famId].sousFamilles[sfId]) groups[famId].sousFamilles[sfId] = { nom: sfNom, rows: [] }
+      groups[famId].sousFamilles[sfId].rows.push(row)
+    })
+    return Object.values(groups).sort((a, b) => a.order.localeCompare(b.order))
   }
 
   // ---- Mouvement entrée (depuis tableau) ----
@@ -219,8 +257,8 @@ export default function StockPage() {
         )}
       </div>
 
-      {/* Bascule vue */}
-      <div className="px-6 pt-4 pb-2 flex items-center gap-3 flex-wrap">
+      {/* Bascule vue + filtres */}
+      <div className="px-6 pt-4 pb-2 flex items-center gap-3 flex-wrap border-b border-stone-100">
         <div className="flex bg-stone-100 rounded-lg p-1 gap-1">
           <button onClick={() => setView('global')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
@@ -239,6 +277,30 @@ export default function StockPage() {
             {lieux.map(l => <option key={l.id} value={l.id}>{l.nom}</option>)}
           </select>
         )}
+
+        {/* Filtres famille / sous-famille */}
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <Tag className="w-4 h-4 text-amber-500 shrink-0" />
+          <select className="input-field w-auto text-sm py-1.5" value={filterFamilleId}
+            onChange={e => { setFilterFamilleId(e.target.value); setFilterSousFamilleId('') }}>
+            <option value="">Toutes les familles</option>
+            {familles.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+          </select>
+          <select className="input-field w-auto text-sm py-1.5" value={filterSousFamilleId}
+            onChange={e => setFilterSousFamilleId(e.target.value)}
+            disabled={!filterFamilleId}>
+            <option value="">Toutes les sous-familles</option>
+            {sousFamilles.filter(sf => sf.famille_id === filterFamilleId).map(sf =>
+              <option key={sf.id} value={sf.id}>{sf.nom}</option>
+            )}
+          </select>
+          {(filterFamilleId || filterSousFamilleId) && (
+            <button onClick={() => { setFilterFamilleId(''); setFilterSousFamilleId('') }}
+              className="text-xs text-stone-400 hover:text-stone-600 underline whitespace-nowrap">
+              Effacer
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Contenu */}
@@ -264,29 +326,53 @@ export default function StockPage() {
                 {globalData.length === 0 && (
                   <tr><td colSpan="10" className="py-8 text-center text-stone-400">Aucune bougie enregistrée</td></tr>
                 )}
-                {globalData.map(({ bougie, total, parLieu, alertes, description }) => (
-                  <tr key={bougie.id} className="border-b border-stone-100 hover:bg-stone-50">
-                    <td className="py-3 pr-4 font-medium text-stone-800">{bougie.nom}</td>
-                    <td className="py-3 pr-4 text-stone-500 text-xs">{description || '—'}</td>
-                    <td className="py-3 pr-4 text-right font-bold text-stone-700">{total}</td>
-                    {lieux.map(l => {
-                      const s = parLieu[l.id]
-                      const isAlert = s && s.seuil !== null && s.qte <= s.seuil
-                      return (
-                        <td key={l.id} className="py-3 pr-4 text-right">
-                          <span className={isAlert ? 'text-red-600 font-bold' : 'text-stone-600'}>
-                            {s ? s.qte : '—'}
-                          </span>
-                          {isAlert && <AlertTriangle className="inline w-3 h-3 text-red-500 ml-1" />}
-                        </td>
-                      )
-                    })}
-                    <td className="py-3 text-right">
-                      {alertes.length > 0
-                        ? <span className="badge-alert">⚠ {alertes.join(', ')}</span>
-                        : <span className="badge-ok">OK</span>}
-                    </td>
-                  </tr>
+                {groupByFamille(globalData).map(groupe => (
+                  groupe.sousFamilles && Object.values(groupe.sousFamilles).map((sfGroup, sfIdx) => (
+                    <>
+                      {/* En-tête famille (affiché une seule fois avant la 1ère sous-famille) */}
+                      {sfIdx === 0 && (
+                        <tr key={'fam-' + groupe.nom} className="bg-amber-50 border-b border-amber-100">
+                          <td colSpan={4 + lieux.length} className="py-2 px-3">
+                            <span className="flex items-center gap-2 text-amber-800 font-semibold text-xs uppercase tracking-wide">
+                              <Tag className="w-3.5 h-3.5" /> {groupe.nom}
+                            </span>
+                          </td>
+                        </tr>
+                      )}
+                      {/* En-tête sous-famille si elle existe */}
+                      {sfGroup.nom && (
+                        <tr key={'sf-' + sfGroup.nom} className="bg-stone-50 border-b border-stone-100">
+                          <td colSpan={4 + lieux.length} className="py-1.5 pl-7 text-xs text-stone-500 font-medium">
+                            › {sfGroup.nom}
+                          </td>
+                        </tr>
+                      )}
+                      {sfGroup.rows.map(({ bougie, total, parLieu, alertes, description }) => (
+                        <tr key={bougie.id} className="border-b border-stone-100 hover:bg-stone-50">
+                          <td className="py-3 pr-4 font-medium text-stone-800 pl-7">{bougie.nom}</td>
+                          <td className="py-3 pr-4 text-stone-500 text-xs">{description || '—'}</td>
+                          <td className="py-3 pr-4 text-right font-bold text-stone-700">{total}</td>
+                          {lieux.map(l => {
+                            const s = parLieu[l.id]
+                            const isAlert = s && s.seuil !== null && s.qte <= s.seuil
+                            return (
+                              <td key={l.id} className="py-3 pr-4 text-right">
+                                <span className={isAlert ? 'text-red-600 font-bold' : 'text-stone-600'}>
+                                  {s ? s.qte : '—'}
+                                </span>
+                                {isAlert && <AlertTriangle className="inline w-3 h-3 text-red-500 ml-1" />}
+                              </td>
+                            )
+                          })}
+                          <td className="py-3 text-right">
+                            {alertes.length > 0
+                              ? <span className="badge-alert">⚠ {alertes.join(', ')}</span>
+                              : <span className="badge-ok">OK</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </>
+                  ))
                 ))}
               </tbody>
             </table>
@@ -316,35 +402,57 @@ export default function StockPage() {
                 {lieuData.length === 0 && (
                   <tr><td colSpan="5" className="py-8 text-center text-stone-400">Aucun stock pour ce lieu</td></tr>
                 )}
-                {lieuData.map(s => (
-                  <tr key={s.id} className={`border-b border-stone-100 hover:bg-stone-50 ${s.alerte ? 'bg-red-50' : ''}`}>
-                    <td className="py-3 pr-4 font-medium text-stone-800">
-                      <div className="flex items-center gap-2">
-                        {s.alerte && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />}
-                        {s.nom}
-                      </div>
-                    </td>
-                    <td className="py-3 pr-4 text-stone-500 text-xs">{s.description || '—'}</td>
-                    <td className={`py-3 pr-4 text-right font-bold text-lg ${s.alerte ? 'text-red-600' : 'text-stone-800'}`}>
-                      {s.quantite}
-                    </td>
-                    <td className="py-3 pr-4 text-right text-stone-500">{s.seuil_alerte ?? '—'}</td>
-                    <td className="py-3 text-right">
-                      <div className="flex gap-1.5 justify-end">
-                        <button onClick={() => openModal('entree', s)}
-                          className="flex items-center gap-1 px-2 py-1 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg text-xs font-medium transition-colors">
-                          <Plus className="w-3 h-3" /> Entrée
-                        </button>
-                        {isAdmin && (
-                          <button onClick={() => openModal('edit', s)}
-                            title="Correction manuelle du stock"
-                            className="flex items-center gap-1 px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-medium transition-colors">
-                            <Pencil className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                {groupByFamille(lieuData).map(groupe => (
+                  groupe.sousFamilles && Object.values(groupe.sousFamilles).map((sfGroup, sfIdx) => (
+                    <>
+                      {sfIdx === 0 && (
+                        <tr key={'fam-' + groupe.nom} className="bg-amber-50 border-b border-amber-100">
+                          <td colSpan="5" className="py-2 px-3">
+                            <span className="flex items-center gap-2 text-amber-800 font-semibold text-xs uppercase tracking-wide">
+                              <Tag className="w-3.5 h-3.5" /> {groupe.nom}
+                            </span>
+                          </td>
+                        </tr>
+                      )}
+                      {sfGroup.nom && (
+                        <tr key={'sf-' + sfGroup.nom} className="bg-stone-50 border-b border-stone-100">
+                          <td colSpan="5" className="py-1.5 pl-7 text-xs text-stone-500 font-medium">
+                            › {sfGroup.nom}
+                          </td>
+                        </tr>
+                      )}
+                      {sfGroup.rows.map(s => (
+                        <tr key={s.id} className={`border-b border-stone-100 hover:bg-stone-50 ${s.alerte ? 'bg-red-50' : ''}`}>
+                          <td className="py-3 pr-4 font-medium text-stone-800 pl-7">
+                            <div className="flex items-center gap-2">
+                              {s.alerte && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />}
+                              {s.nom}
+                            </div>
+                          </td>
+                          <td className="py-3 pr-4 text-stone-500 text-xs">{s.description || '—'}</td>
+                          <td className={`py-3 pr-4 text-right font-bold text-lg ${s.alerte ? 'text-red-600' : 'text-stone-800'}`}>
+                            {s.quantite}
+                          </td>
+                          <td className="py-3 pr-4 text-right text-stone-500">{s.seuil_alerte ?? '—'}</td>
+                          <td className="py-3 text-right">
+                            <div className="flex gap-1.5 justify-end">
+                              <button onClick={() => openModal('entree', s)}
+                                className="flex items-center gap-1 px-2 py-1 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg text-xs font-medium transition-colors">
+                                <Plus className="w-3 h-3" /> Entrée
+                              </button>
+                              {isAdmin && (
+                                <button onClick={() => openModal('edit', s)}
+                                  title="Correction manuelle du stock"
+                                  className="flex items-center gap-1 px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-medium transition-colors">
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </>
+                  ))
                 ))}
               </tbody>
             </table>

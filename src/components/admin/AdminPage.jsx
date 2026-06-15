@@ -31,6 +31,8 @@ export default function AdminPage() {
   // ---- Bougies ----
   const [newBougieNom, setNewBougieNom] = useState('')
   const [newBougieDesc, setNewBougieDesc] = useState('')
+  const [newBougieFamilleId, setNewBougieFamilleId] = useState('')
+  const [newBougieSousFamilleId, setNewBougieSousFamilleId] = useState('')
   const [editBougie, setEditBougie] = useState(null) // bougie complète
   const [editNom, setEditNom] = useState('')
   const [editDesc, setEditDesc] = useState('')
@@ -121,9 +123,13 @@ export default function AdminPage() {
     await supabase.from('bougies').insert({
       nom: newBougieNom.trim(),
       description: newBougieDesc.trim() || null,
+      famille_id: newBougieFamilleId || null,
+      sous_famille_id: newBougieSousFamilleId || null,
     })
     setNewBougieNom('')
     setNewBougieDesc('')
+    setNewBougieFamilleId('')
+    setNewBougieSousFamilleId('')
     setSaving(false)
     loadAll()
   }
@@ -484,6 +490,27 @@ export default function AdminPage() {
                 value={newBougieNom} onChange={e => setNewBougieNom(e.target.value)} />
               <input type="text" className="input-field" placeholder="Description (optionnel)"
                 value={newBougieDesc} onChange={e => setNewBougieDesc(e.target.value)} />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-500 mb-1">Famille</label>
+                  <select className="input-field" value={newBougieFamilleId}
+                    onChange={e => { setNewBougieFamilleId(e.target.value); setNewBougieSousFamilleId('') }}>
+                    <option value="">— Aucune —</option>
+                    {familles.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-500 mb-1">Sous-famille</label>
+                  <select className="input-field" value={newBougieSousFamilleId}
+                    onChange={e => setNewBougieSousFamilleId(e.target.value)}
+                    disabled={!newBougieFamilleId}>
+                    <option value="">— Aucune —</option>
+                    {sousFamilles
+                      .filter(sf => sf.famille_id === newBougieFamilleId)
+                      .map(sf => <option key={sf.id} value={sf.id}>{sf.nom}</option>)}
+                  </select>
+                </div>
+              </div>
               <button onClick={addBougie} disabled={saving || !newBougieNom.trim()}
                 className="btn-primary flex items-center gap-1">
                 <Plus className="w-4 h-4" /> Ajouter la référence
