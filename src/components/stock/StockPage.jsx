@@ -143,7 +143,17 @@ export default function StockPage() {
       if (!groups[famId].sousFamilles[sfId]) groups[famId].sousFamilles[sfId] = { nom: sfNom, rows: [] }
       groups[famId].sousFamilles[sfId].rows.push(row)
     })
-    return Object.values(groups).sort((a, b) => a.order.localeCompare(b.order))
+    return Object.values(groups)
+      .sort((a, b) => a.order.localeCompare(b.order))
+      .map(g => ({
+        ...g,
+        sousFamilles: Object.values(g.sousFamilles).sort((a, b) => {
+          if (!a.nom && !b.nom) return 0
+          if (!a.nom) return -1
+          if (!b.nom) return 1
+          return a.nom.localeCompare(b.nom)
+        })
+      }))
   }
 
   // ---- Mouvement entrée (depuis tableau) ----

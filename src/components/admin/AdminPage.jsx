@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Plus, Trash2, Bell, Users, MapPin, Flame, UserPlus, Pencil, Image, KeyRound, Tag } from 'lucide-react'
+import { Plus, Trash2, Bell, Users, MapPin, Flame, UserPlus, Pencil, Image, KeyRound, Tag, Filter } from 'lucide-react'
 import Modal from '../shared/Modal'
 
 export default function AdminPage() {
@@ -27,6 +27,10 @@ export default function AdminPage() {
   const [newLieuNom, setNewLieuNom] = useState('')
   const [editLieu, setEditLieu] = useState(null)   // { id, nom }
   const [editLieuNom, setEditLieuNom] = useState('')
+
+  // ---- Filtres bougies (onglet admin) ----
+  const [adminFilterFamilleId, setAdminFilterFamilleId] = useState('')
+  const [adminFilterSousFamilleId, setAdminFilterSousFamilleId] = useState('')
 
   // ---- Bougies ----
   const [newBougieNom, setNewBougieNom] = useState('')
@@ -483,14 +487,15 @@ export default function AdminPage() {
           </div>
         )}
         {tab === 'bougies' && (
-          <div className="max-w-lg space-y-4">
-            <div className="card space-y-3">
+          <div className="space-y-4">
+            {/* Formulaire d'ajout */}
+            <div className="card max-w-2xl space-y-3">
               <h2 className="font-medium text-stone-700">Ajouter une référence</h2>
-              <input type="text" className="input-field" placeholder="Nom de la bougie (ex : Cierge pascal)"
-                value={newBougieNom} onChange={e => setNewBougieNom(e.target.value)} />
-              <input type="text" className="input-field" placeholder="Description (optionnel)"
-                value={newBougieDesc} onChange={e => setNewBougieDesc(e.target.value)} />
               <div className="grid grid-cols-2 gap-3">
+                <input type="text" className="input-field col-span-2" placeholder="Nom de la bougie (ex : Cierge pascal)"
+                  value={newBougieNom} onChange={e => setNewBougieNom(e.target.value)} />
+                <input type="text" className="input-field col-span-2" placeholder="Description (optionnel)"
+                  value={newBougieDesc} onChange={e => setNewBougieDesc(e.target.value)} />
                 <div>
                   <label className="block text-xs font-medium text-stone-500 mb-1">Famille</label>
                   <select className="input-field" value={newBougieFamilleId}
@@ -517,46 +522,135 @@ export default function AdminPage() {
               </button>
             </div>
 
-            <div className="card">
-              <h2 className="font-medium text-stone-700 mb-3">{bougies.length} référence{bougies.length !== 1 ? 's' : ''}</h2>
-              <ul className="divide-y divide-stone-100">
-                {bougies.map(b => (
-                  <li key={b.id} className="flex items-center justify-between py-3 gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      {/* Miniature photo */}
-                      {b.photo_url
-                        ? <img src={b.photo_url} alt={b.nom} className="w-10 h-10 rounded-lg object-cover shrink-0 border border-stone-200" />
-                        : <div className="w-10 h-10 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center shrink-0">
-                            <Flame className="w-5 h-5 text-amber-300" />
-                          </div>
-                      }
-                      <div className="min-w-0">
-                        <p className="font-medium text-stone-800 truncate">{b.nom}</p>
-                        {b.description && <p className="text-xs text-stone-400 truncate">{b.description}</p>}
-                        <div className="flex gap-2 mt-0.5 flex-wrap">
-                          {b.familles?.nom && (
-                            <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">
-                              {b.familles.nom}{b.sous_familles?.nom ? ' › ' + b.sous_familles.nom : ''}
-                            </span>
-                          )}
-                          {b.qte_mini !== null && b.qte_mini !== undefined &&
-                            <span className="text-xs text-blue-600">min. {b.qte_mini}</span>}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-1 shrink-0">
-                      <button onClick={() => openEditBougie(b)}
-                        className="text-stone-400 hover:text-amber-600 p-1 rounded hover:bg-amber-50 transition-colors" title="Modifier">
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => deleteBougie(b.id)}
-                        className="text-stone-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors" title="Supprimer">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+            {/* Filtres + tableau */}
+            <div className="card overflow-x-auto">
+              {/* Barre filtres */}
+              <div className="flex items-center gap-3 mb-4 flex-wrap">
+                <span className="font-medium text-stone-700 mr-auto">
+                  {bougies.length} référence{bougies.length !== 1 ? 's' : ''}
+                </span>
+                <Tag className="w-4 h-4 text-amber-500 shrink-0" />
+                <select className="input-field w-auto text-sm py-1.5" value={adminFilterFamilleId}
+                  onChange={e => { setAdminFilterFamilleId(e.target.value); setAdminFilterSousFamilleId('') }}>
+                  <option value="">Toutes les familles</option>
+                  {familles.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+                </select>
+                <select className="input-field w-auto text-sm py-1.5" value={adminFilterSousFamilleId}
+                  onChange={e => setAdminFilterSousFamilleId(e.target.value)}
+                  disabled={!adminFilterFamilleId}>
+                  <option value="">Toutes les sous-familles</option>
+                  {sousFamilles.filter(sf => sf.famille_id === adminFilterFamilleId).map(sf =>
+                    <option key={sf.id} value={sf.id}>{sf.nom}</option>
+                  )}
+                </select>
+                {(adminFilterFamilleId || adminFilterSousFamilleId) && (
+                  <button onClick={() => { setAdminFilterFamilleId(''); setAdminFilterSousFamilleId('') }}
+                    className="text-xs text-stone-400 hover:text-stone-600 underline whitespace-nowrap">
+                    Effacer
+                  </button>
+                )}
+              </div>
+
+              {/* Tableau groupé */}
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-stone-200 text-stone-500 text-xs uppercase tracking-wide">
+                    <th className="text-left py-3 pr-4 font-medium w-12"></th>
+                    <th className="text-left py-3 pr-4 font-medium">Nom</th>
+                    <th className="text-left py-3 pr-4 font-medium">Description</th>
+                    <th className="text-center py-3 pr-4 font-medium">Qté mini</th>
+                    <th className="text-right py-3 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const filtered = bougies.filter(b => {
+                      if (adminFilterFamilleId && b.famille_id !== adminFilterFamilleId) return false
+                      if (adminFilterSousFamilleId && b.sous_famille_id !== adminFilterSousFamilleId) return false
+                      return true
+                    })
+                    if (filtered.length === 0) return (
+                      <tr><td colSpan="5" className="py-8 text-center text-stone-400">Aucune référence</td></tr>
+                    )
+
+                    // Groupement par famille puis sous-famille
+                    const SANS_FAM = '__sans_famille__'
+                    const groups = {}
+                    filtered.forEach(b => {
+                      const famId = b.famille_id || SANS_FAM
+                      const famNom = b.familles?.nom || 'Sans famille'
+                      const sfId = b.sous_famille_id || '__sans_sf__'
+                      const sfNom = b.sous_familles?.nom || null
+                      if (!groups[famId]) groups[famId] = { nom: famNom, order: famId === SANS_FAM ? 'zzz' : famNom, sfs: {} }
+                      if (!groups[famId].sfs[sfId]) groups[famId].sfs[sfId] = { nom: sfNom, bougies: [] }
+                      groups[famId].sfs[sfId].bougies.push(b)
+                    })
+
+                    return Object.values(groups)
+                      .sort((a, z) => a.order.localeCompare(z.order))
+                      .map(groupe => {
+                        const sfsSorted = Object.values(groupe.sfs).sort((a, b) => {
+                          if (!a.nom && !b.nom) return 0
+                          if (!a.nom) return -1
+                          if (!b.nom) return 1
+                          return a.nom.localeCompare(b.nom)
+                        })
+                        return sfsSorted.map((sfGroup, sfIdx) => (
+                          <>
+                            {sfIdx === 0 && (
+                              <tr key={'fam-' + groupe.nom} className="bg-amber-50 border-b border-amber-100">
+                                <td colSpan="5" className="py-2 px-3">
+                                  <span className="flex items-center gap-2 text-amber-800 font-semibold text-xs uppercase tracking-wide">
+                                    <Tag className="w-3.5 h-3.5" /> {groupe.nom}
+                                  </span>
+                                </td>
+                              </tr>
+                            )}
+                            {sfGroup.nom && (
+                              <tr key={'sf-' + sfGroup.nom} className="bg-stone-50 border-b border-stone-100">
+                                <td colSpan="5" className="py-1.5 pl-7 text-xs text-stone-500 font-medium">
+                                  › {sfGroup.nom}
+                                </td>
+                              </tr>
+                            )}
+                            {sfGroup.bougies.map(b => (
+                              <tr key={b.id} className="border-b border-stone-100 hover:bg-stone-50">
+                                <td className="py-2.5 pr-3 pl-7">
+                                  {b.photo_url
+                                    ? <img src={b.photo_url} alt={b.nom} className="w-9 h-9 rounded-lg object-cover border border-stone-200" />
+                                    : <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center">
+                                        <Flame className="w-4 h-4 text-amber-300" />
+                                      </div>
+                                  }
+                                </td>
+                                <td className="py-2.5 pr-4 font-medium text-stone-800 whitespace-nowrap">{b.nom}</td>
+                                <td className="py-2.5 pr-4 text-stone-500 text-xs">{b.description || '—'}</td>
+                                <td className="py-2.5 pr-4 text-center">
+                                  {b.qte_mini !== null && b.qte_mini !== undefined
+                                    ? <span className="text-xs text-blue-600 font-medium">≥ {b.qte_mini}</span>
+                                    : <span className="text-stone-300">—</span>}
+                                </td>
+                                <td className="py-2.5 text-right">
+                                  <div className="flex gap-1 justify-end">
+                                    <button onClick={() => openEditBougie(b)}
+                                      className="text-stone-400 hover:text-amber-600 p-1 rounded hover:bg-amber-50 transition-colors" title="Modifier">
+                                      <Pencil className="w-4 h-4" />
+                                    </button>
+                                    <button onClick={() => deleteBougie(b.id)}
+                                      className="text-stone-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors" title="Supprimer">
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </>
+                        ))
+                      })
+                      )
+                  })()}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
