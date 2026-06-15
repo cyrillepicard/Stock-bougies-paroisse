@@ -249,7 +249,7 @@ export default function StockPage() {
     <div className="flex flex-col h-full">
       {/* En-tête */}
       <div className="px-6 py-4 border-b border-stone-200 bg-white flex flex-wrap items-center gap-3">
-        <h1 className="font-serif font-bold text-xl text-stone-800 mr-auto">Stock d'articles</h1>
+        <h1 className="font-serif font-bold text-xl text-stone-800 mr-auto">Gestion de Stock Paroisse</h1>
         {isAdmin && (
           <>
             <button onClick={() => setShowImport(true)} className="btn-secondary flex items-center gap-2 text-sm">

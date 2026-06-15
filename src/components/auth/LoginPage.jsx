@@ -21,11 +21,9 @@ export default function LoginPage() {
       <div className="bg-white rounded-2xl shadow-lg border border-stone-200 w-full max-w-sm p-8">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mb-3">
-            <Flame className="w-8 h-8 text-amber-600" />
-          </div>
-          <h1 className="text-2xl font-serif font-bold text-stone-800">Bougies Paroisse</h1>
-          <p className="text-stone-500 text-sm mt-1">Gestion du stock de bougies</p>
+          <img src="/logo.png" alt="Logo Paroisse" className="w-20 h-20 object-contain mb-1" />
+          <h1 className="text-2xl font-serif font-bold text-stone-800">Gestion de Stock Paroisse</h1>
+          <p className="text-stone-500 text-sm mt-1">Connectez-vous pour accéder au stock</p>
         </div>
 
         {/* Champs */}
