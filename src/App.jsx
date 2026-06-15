@@ -4,6 +4,7 @@ import LoginPage from './components/auth/LoginPage'
 import Navbar from './components/layout/Navbar'
 import Sidebar from './components/layout/Sidebar'
 import StockPage from './components/stock/StockPage'
+import EntreePage from './components/stock/EntreePage'
 import SortiePage from './components/stock/SortiePage'
 import TransfertPage from './components/stock/TransfertPage'
 import HistoriquePage from './components/history/HistoriquePage'
@@ -23,11 +24,11 @@ function AppInner() {
 
   if (!user) return <LoginPage />
 
-  // Sécurité : bloquer l'accès à l'historique si non admin
   const safePage = (page === 'historique' || page === 'admin') && !isAdmin ? 'stock' : page
 
   const pages = {
     stock:      <StockPage />,
+    entree:     <EntreePage />,
     sortie:     <SortiePage />,
     transfert:  <TransfertPage />,
     historique: isAdmin ? <HistoriquePage /> : <StockPage />,

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Plus, Trash2, Bell, Users, MapPin, Flame, UserPlus, Pencil, Image, KeyRound } from 'lucide-react'
+import { Plus, Trash2, Bell, Users, MapPin, Flame, UserPlus, Pencil, Image, KeyRound, Tag } from 'lucide-react'
 import Modal from '../shared/Modal'
 
 export default function AdminPage() {
@@ -11,6 +11,17 @@ export default function AdminPage() {
   const [profils, setProfils] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  // ---- Familles / Sous-familles ----
+  const [familles, setFamilles] = useState([])
+  const [sousFamilles, setSousFamilles] = useState([])
+  const [newFamNom, setNewFamNom] = useState('')
+  const [newSFNom, setNewSFNom] = useState('')
+  const [newSFFamilleId, setNewSFFamilleId] = useState('')
+  const [editFam, setEditFam] = useState(null)
+  const [editFamNom, setEditFamNom] = useState('')
+  const [editSF, setEditSF] = useState(null)
+  const [editSFNom, setEditSFNom] = useState('')
 
   // ---- Lieux ----
   const [newLieuNom, setNewLieuNom] = useState('')
@@ -24,6 +35,8 @@ export default function AdminPage() {
   const [editNom, setEditNom] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [editQteMini, setEditQteMini] = useState('')
+  const [editFamilleId, setEditFamilleId] = useState('')
+  const [editSousFamilleId, setEditSousFamilleId] = useState('')
   const [editPhotoFile, setEditPhotoFile] = useState(null)
   const [editPhotoPreview, setEditPhotoPreview] = useState(null)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
@@ -50,16 +63,20 @@ export default function AdminPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: l }, { data: b }, { data: s }, { data: p }] = await Promise.all([
+    const [{ data: l }, { data: b }, { data: s }, { data: p }, { data: f }, { data: sf }] = await Promise.all([
       supabase.from('lieux').select('*').order('nom'),
-      supabase.from('bougies').select('*').order('nom'),
+      supabase.from('bougies').select('*, familles(nom), sous_familles(nom)').order('nom'),
       supabase.from('stock_par_lieu').select('*'),
       supabase.from('profils').select('*').order('email'),
+      supabase.from('familles').select('*').order('nom'),
+      supabase.from('sous_familles').select('*').order('nom'),
     ])
     setLieux(l || [])
     setBougies(b || [])
     setStock(s || [])
     setProfils(p || [])
+    setFamilles(f || [])
+    setSousFamilles(sf || [])
     setLoading(false)
   }
 
@@ -116,6 +133,8 @@ export default function AdminPage() {
     setEditNom(b.nom)
     setEditDesc(b.description || '')
     setEditQteMini(b.qte_mini !== null && b.qte_mini !== undefined ? b.qte_mini.toString() : '')
+    setEditFamilleId(b.famille_id || '')
+    setEditSousFamilleId(b.sous_famille_id || '')
     setEditPhotoFile(null)
     setEditPhotoPreview(b.photo_url || null)
   }
@@ -150,6 +169,8 @@ export default function AdminPage() {
       description: editDesc.trim() || null,
       qte_mini: editQteMini === '' ? null : Number(editQteMini),
       photo_url: photoUrl,
+      famille_id: editFamilleId || null,
+      sous_famille_id: editSousFamilleId || null,
     }).eq('id', editBougie.id)
 
     setUploadingPhoto(false)
@@ -161,6 +182,38 @@ export default function AdminPage() {
     if (!window.confirm('Supprimer cette référence ? Tout le stock associé sera également supprimé.')) return
     await supabase.from('bougies').delete().eq('id', id)
     loadAll()
+  }
+
+  // ================================================================
+  // FAMILLES & SOUS-FAMILLES
+  // ================================================================
+  async function addFamille() {
+    if (!newFamNom.trim()) return
+    await supabase.from('familles').insert({ nom: newFamNom.trim() })
+    setNewFamNom(''); loadAll()
+  }
+  async function saveEditFam() {
+    if (!editFamNom.trim()) return
+    await supabase.from('familles').update({ nom: editFamNom.trim() }).eq('id', editFam.id)
+    setEditFam(null); loadAll()
+  }
+  async function deleteFamille(id) {
+    if (!window.confirm('Supprimer cette famille ? Les sous-familles associées seront aussi supprimées.')) return
+    await supabase.from('familles').delete().eq('id', id); loadAll()
+  }
+  async function addSousFamille() {
+    if (!newSFNom.trim() || !newSFFamilleId) return
+    await supabase.from('sous_familles').insert({ nom: newSFNom.trim(), famille_id: newSFFamilleId })
+    setNewSFNom(''); loadAll()
+  }
+  async function saveEditSF() {
+    if (!editSFNom.trim()) return
+    await supabase.from('sous_familles').update({ nom: editSFNom.trim() }).eq('id', editSF.id)
+    setEditSF(null); loadAll()
+  }
+  async function deleteSousFamille(id) {
+    if (!window.confirm('Supprimer cette sous-famille ?')) return
+    await supabase.from('sous_familles').delete().eq('id', id); loadAll()
   }
 
   // ================================================================
@@ -266,10 +319,11 @@ export default function AdminPage() {
   if (loading) return <div className="p-8 text-stone-400 text-center">Chargement…</div>
 
   const tabs = [
-    { id: 'lieux',   label: 'Lieux',          icon: MapPin },
-    { id: 'bougies', label: 'Bougies',         icon: Flame },
-    { id: 'seuils',  label: "Seuils d'alerte", icon: Bell },
-    { id: 'users',   label: 'Utilisateurs',    icon: Users },
+    { id: 'lieux',    label: 'Lieux',          icon: MapPin },
+    { id: 'familles', label: 'Familles',        icon: Tag },
+    { id: 'bougies',  label: 'Bougies',         icon: Flame },
+    { id: 'seuils',   label: "Seuils d'alerte", icon: Bell },
+    { id: 'users',    label: 'Utilisateurs',    icon: Users },
   ]
 
   return (
@@ -334,8 +388,94 @@ export default function AdminPage() {
         )}
 
         {/* ============================================================ */}
-        {/* BOUGIES                                                       */}
+        {/* FAMILLES & SOUS-FAMILLES                                      */}
         {/* ============================================================ */}
+        {tab === 'familles' && (
+          <div className="max-w-2xl space-y-4">
+            {/* Ajouter famille */}
+            <div className="card">
+              <h2 className="font-medium text-stone-700 mb-3">Ajouter une famille</h2>
+              <div className="flex gap-2">
+                <input type="text" className="input-field" placeholder="ex : Cierges, Veilleuses…"
+                  value={newFamNom} onChange={e => setNewFamNom(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addFamille()} />
+                <button onClick={addFamille} disabled={!newFamNom.trim()}
+                  className="btn-primary flex items-center gap-1 whitespace-nowrap">
+                  <Plus className="w-4 h-4" /> Ajouter
+                </button>
+              </div>
+            </div>
+
+            {/* Liste familles + sous-familles */}
+            {familles.map(f => {
+              const sfs = sousFamilles.filter(sf => sf.famille_id === f.id)
+              return (
+                <div key={f.id} className="card">
+                  {/* En-tête famille */}
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-stone-800 flex items-center gap-2">
+                      <Tag className="w-4 h-4 text-amber-500" /> {f.nom}
+                      <span className="text-xs font-normal text-stone-400">{sfs.length} sous-famille{sfs.length !== 1 ? 's' : ''}</span>
+                    </h3>
+                    <div className="flex gap-1">
+                      <button onClick={() => { setEditFam(f); setEditFamNom(f.nom) }}
+                        className="text-stone-400 hover:text-amber-600 p-1 rounded hover:bg-amber-50 transition-colors">
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => deleteFamille(f.id)}
+                        className="text-stone-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sous-familles existantes */}
+                  {sfs.length > 0 && (
+                    <ul className="divide-y divide-stone-100 mb-3">
+                      {sfs.map(sf => (
+                        <li key={sf.id} className="flex items-center justify-between py-2 pl-4">
+                          <span className="text-sm text-stone-700">› {sf.nom}</span>
+                          <div className="flex gap-1">
+                            <button onClick={() => { setEditSF(sf); setEditSFNom(sf.nom) }}
+                              className="text-stone-400 hover:text-amber-600 p-1 rounded hover:bg-amber-50 transition-colors">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => deleteSousFamille(sf.id)}
+                              className="text-stone-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {/* Ajouter sous-famille dans cette famille */}
+                  <div className="flex gap-2 pl-4">
+                    <input type="text" className="input-field text-sm py-1.5"
+                      placeholder={'Nouvelle sous-famille dans ' + f.nom}
+                      value={newSFFamilleId === f.id ? newSFNom : ''}
+                      onFocus={() => setNewSFFamilleId(f.id)}
+                      onChange={e => { setNewSFFamilleId(f.id); setNewSFNom(e.target.value) }}
+                      onKeyDown={e => e.key === 'Enter' && newSFFamilleId === f.id && addSousFamille()} />
+                    <button
+                      onClick={() => { setNewSFFamilleId(f.id); addSousFamille() }}
+                      disabled={newSFFamilleId !== f.id || !newSFNom.trim()}
+                      className="btn-secondary text-sm py-1.5 flex items-center gap-1 whitespace-nowrap">
+                      <Plus className="w-3.5 h-3.5" /> Ajouter
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+
+            {familles.length === 0 && (
+              <div className="card text-center text-stone-400 py-8">
+                Aucune famille créée. Ajoutez-en une ci-dessus.
+              </div>
+            )}
+          </div>
+        )}
         {tab === 'bougies' && (
           <div className="max-w-lg space-y-4">
             <div className="card space-y-3">
@@ -366,7 +506,12 @@ export default function AdminPage() {
                       <div className="min-w-0">
                         <p className="font-medium text-stone-800 truncate">{b.nom}</p>
                         {b.description && <p className="text-xs text-stone-400 truncate">{b.description}</p>}
-                        <div className="flex gap-3 mt-0.5">
+                        <div className="flex gap-2 mt-0.5 flex-wrap">
+                          {b.familles?.nom && (
+                            <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">
+                              {b.familles.nom}{b.sous_familles?.nom ? ' › ' + b.sous_familles.nom : ''}
+                            </span>
+                          )}
                           {b.qte_mini !== null && b.qte_mini !== undefined &&
                             <span className="text-xs text-blue-600">min. {b.qte_mini}</span>}
                         </div>
@@ -568,6 +713,29 @@ export default function AdminPage() {
                 value={editDesc} onChange={e => setEditDesc(e.target.value)} />
             </div>
 
+            {/* Famille */}
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Famille</label>
+              <select className="input-field" value={editFamilleId}
+                onChange={e => { setEditFamilleId(e.target.value); setEditSousFamilleId('') }}>
+                <option value="">— Aucune famille —</option>
+                {familles.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+              </select>
+            </div>
+
+            {/* Sous-famille — filtrée sur la famille choisie */}
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Sous-famille</label>
+              <select className="input-field" value={editSousFamilleId}
+                onChange={e => setEditSousFamilleId(e.target.value)}
+                disabled={!editFamilleId}>
+                <option value="">— Aucune sous-famille —</option>
+                {sousFamilles
+                  .filter(sf => sf.famille_id === editFamilleId)
+                  .map(sf => <option key={sf.id} value={sf.id}>{sf.nom}</option>)}
+              </select>
+            </div>
+
             {/* Quantité mini globale */}
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1">
@@ -663,6 +831,36 @@ export default function AdminPage() {
                   {savingUser ? 'Enregistrement…' : 'Enregistrer'}
                 </button>
               )}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Renommer famille */}
+      {editFam && (
+        <Modal title="Renommer la famille" onClose={() => setEditFam(null)} size="sm">
+          <div className="space-y-4">
+            <input type="text" className="input-field" value={editFamNom}
+              onChange={e => setEditFamNom(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && saveEditFam()} autoFocus />
+            <div className="flex gap-3">
+              <button onClick={() => setEditFam(null)} className="btn-secondary flex-1">Annuler</button>
+              <button onClick={saveEditFam} disabled={!editFamNom.trim()} className="btn-primary flex-1">Enregistrer</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Renommer sous-famille */}
+      {editSF && (
+        <Modal title="Renommer la sous-famille" onClose={() => setEditSF(null)} size="sm">
+          <div className="space-y-4">
+            <input type="text" className="input-field" value={editSFNom}
+              onChange={e => setEditSFNom(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && saveEditSF()} autoFocus />
+            <div className="flex gap-3">
+              <button onClick={() => setEditSF(null)} className="btn-secondary flex-1">Annuler</button>
+              <button onClick={saveEditSF} disabled={!editSFNom.trim()} className="btn-primary flex-1">Enregistrer</button>
             </div>
           </div>
         </Modal>

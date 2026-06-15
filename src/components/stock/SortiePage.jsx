@@ -1,7 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
-import { MinusCircle, AlertTriangle } from 'lucide-react'
+import { MinusCircle, AlertTriangle, QrCode, X } from 'lucide-react'
+
+// Chargement dynamique de la lib QR (jsQR via CDN)
+function loadJsQR() {
+  return new Promise((resolve) => {
+    if (window.jsQR) { resolve(window.jsQR); return }
+    const s = document.createElement('script')
+    s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js'
+    s.onload = () => resolve(window.jsQR)
+    document.head.appendChild(s)
+  })
+}
 
 export default function SortiePage() {
   const { user } = useAuth()
@@ -16,11 +27,20 @@ export default function SortiePage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
+  // QR scan
+  const [scanning, setScanning] = useState(false)
+  const [scanError, setScanError] = useState('')
+  const [scanMsg, setScanMsg] = useState('')
+  const videoRef = useRef(null)
+  const canvasRef = useRef(null)
+  const streamRef = useRef(null)
+  const rafRef = useRef(null)
+
   useEffect(() => {
     async function load() {
       const [{ data: l }, { data: b }, { data: s }] = await Promise.all([
         supabase.from('lieux').select('*').order('nom'),
-        supabase.from('bougies').select('*').order('nom'),
+        supabase.from('bougies').select('*, familles(nom), sous_familles(nom)').order('nom'),
         supabase.from('stock_par_lieu').select('*'),
       ])
       setLieux(l || [])
@@ -30,6 +50,75 @@ export default function SortiePage() {
     load()
   }, [])
 
+  // Fermer le scan proprement
+  const stopScan = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    setScanning(false)
+  }, [])
+
+  useEffect(() => () => stopScan(), [stopScan])
+
+  async function startScan() {
+    setScanError('')
+    setScanMsg('Ouverture de la caméra…')
+    setScanning(true)
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+      }
+      setScanMsg('Pointez vers un QR code…')
+      const jsQR = await loadJsQR()
+      scanFrame(jsQR)
+    } catch (e) {
+      setScanError('Impossible d\'accéder à la caméra : ' + e.message)
+      setScanning(false)
+    }
+  }
+
+  function scanFrame(jsQR) {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas || !streamRef.current) return
+
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const code = jsQR(imageData.data, imageData.width, imageData.height)
+
+      if (code) {
+        const texte = code.data.trim()
+        // Chercher la bougie dont le nom correspond (insensible à la casse)
+        const found = bougies.find(b =>
+          b.nom.toLowerCase() === texte.toLowerCase() ||
+          texte.toLowerCase().includes(b.nom.toLowerCase())
+        )
+        if (found) {
+          setSelectedBougie(found.id)
+          setScanMsg('✓ Bougie détectée : ' + found.nom)
+          stopScan()
+          setError(''); setSuccess('')
+        } else {
+          setScanMsg('QR lu : "' + texte + '" — bougie non trouvée, réessayez')
+          rafRef.current = requestAnimationFrame(() => scanFrame(jsQR))
+        }
+        return
+      }
+    }
+    rafRef.current = requestAnimationFrame(() => scanFrame(jsQR))
+  }
+
+  // Stock courant
   const stockCourant = stock.find(
     s => s.lieu_id === selectedLieu && s.bougie_id === selectedBougie
   )
@@ -38,47 +127,8 @@ export default function SortiePage() {
   const depassement = qte !== '' && qteNum > disponible
   const nomLieu = lieux.find(l => l.id === selectedLieu)?.nom
   const nomBougie = bougies.find(b => b.id === selectedBougie)?.nom
-
-  async function handleSortie() {
-    setError('')
-    setSuccess('')
-    if (!selectedLieu || !selectedBougie) { setError('Sélectionne un lieu et un type de bougie.'); return }
-    if (!qte || qteNum <= 0) { setError('La quantité doit être supérieure à 0.'); return }
-    if (qteNum > disponible) { setError('Stock insuffisant. Il ne reste que ' + disponible + ' unité' + (disponible > 1 ? 's' : '') + ' à ' + nomLieu + '.'); return }
-
-    setSaving(true)
-    await supabase.from('stock_par_lieu').upsert({
-      bougie_id: selectedBougie,
-      lieu_id: selectedLieu,
-      quantite: disponible - qteNum,
-      seuil_alerte: stockCourant?.seuil_alerte ?? null,
-    }, { onConflict: 'bougie_id,lieu_id' })
-
-    await supabase.from('mouvements').insert({
-      bougie_id: selectedBougie,
-      lieu_id: selectedLieu,
-      type: 'sortie',
-      quantite: qteNum,
-      motif: motif || null,
-      user_email: user?.email,
-    })
-
-    const { data: s } = await supabase.from('stock_par_lieu').select('*')
-    setStock(s || [])
-    setSuccess('Sortie enregistrée : ' + qteNum + ' x ' + nomBougie + ' depuis ' + nomLieu + '.')
-    setQte('')
-    setMotif('')
-    setSaving(false)
-  }
-
-  function reset() {
-    setSelectedLieu('')
-    setSelectedBougie('')
-    setQte('')
-    setMotif('')
-    setError('')
-    setSuccess('')
-  }
+  const stockBas = selectedBougie && selectedLieu && stockCourant?.seuil_alerte !== null
+    && disponible <= (stockCourant?.seuil_alerte ?? 0) && disponible > 0
 
   const bougiesDisponibles = bougies.filter(b => {
     if (!selectedLieu) return true
@@ -86,8 +136,36 @@ export default function SortiePage() {
     return s && s.quantite > 0
   })
 
-  const stockBas = selectedBougie && selectedLieu && stockCourant?.seuil_alerte !== null
-    && disponible <= (stockCourant?.seuil_alerte ?? 0) && disponible > 0
+  async function handleSortie() {
+    setError(''); setSuccess('')
+    if (!selectedLieu || !selectedBougie) { setError('Sélectionne un lieu et un type de bougie.'); return }
+    if (!qte || qteNum <= 0) { setError('La quantité doit être supérieure à 0.'); return }
+    if (qteNum > disponible) { setError('Stock insuffisant. Il reste ' + disponible + ' unité(s) à ' + nomLieu + '.'); return }
+    setSaving(true)
+
+    await supabase.from('stock_par_lieu').upsert({
+      bougie_id: selectedBougie, lieu_id: selectedLieu,
+      quantite: disponible - qteNum,
+      seuil_alerte: stockCourant?.seuil_alerte ?? null,
+    }, { onConflict: 'bougie_id,lieu_id' })
+
+    await supabase.from('mouvements').insert({
+      bougie_id: selectedBougie, lieu_id: selectedLieu,
+      type: 'sortie', quantite: qteNum,
+      motif: motif || null, user_email: user?.email,
+    })
+
+    const { data: s } = await supabase.from('stock_par_lieu').select('*')
+    setStock(s || [])
+    setSuccess('Sortie enregistrée : ' + qteNum + ' × ' + nomBougie + ' depuis ' + nomLieu + '.')
+    setQte(''); setMotif('')
+    setSaving(false)
+  }
+
+  function reset() {
+    setSelectedLieu(''); setSelectedBougie(''); setQte(''); setMotif('')
+    setError(''); setSuccess(''); setScanMsg(''); setScanError('')
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -102,35 +180,73 @@ export default function SortiePage() {
           {/* Lieu */}
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Lieu</label>
-            <select
-              className="input-field"
-              value={selectedLieu}
-              onChange={e => { setSelectedLieu(e.target.value); setSelectedBougie(''); setQte(''); setError(''); setSuccess('') }}
-            >
+            <select className="input-field" value={selectedLieu}
+              onChange={e => { setSelectedLieu(e.target.value); setSelectedBougie(''); setQte(''); setError(''); setSuccess('') }}>
               <option value="">Sélectionner un lieu…</option>
               {lieux.map(l => <option key={l.id} value={l.id}>{l.nom}</option>)}
             </select>
           </div>
 
-          {/* Bougie */}
+          {/* Bougie — liste + bouton scan QR */}
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Type de bougie</label>
-            <select
-              className="input-field"
-              value={selectedBougie}
-              onChange={e => { setSelectedBougie(e.target.value); setQte(''); setError(''); setSuccess('') }}
-              disabled={!selectedLieu}
-            >
-              <option value="">Sélectionner une bougie…</option>
-              {bougiesDisponibles.map(b => {
-                const s = stock.find(s => s.bougie_id === b.id && s.lieu_id === selectedLieu)
-                return (
-                  <option key={b.id} value={b.id}>
-                    {b.nom}{s ? ' — ' + s.quantite + ' en stock' : ''}
-                  </option>
-                )
-              })}
-            </select>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Référence de bougie</label>
+            <div className="flex gap-2">
+              <select className="input-field" value={selectedBougie}
+                onChange={e => { setSelectedBougie(e.target.value); setQte(''); setError(''); setSuccess('') }}
+                disabled={!selectedLieu}>
+                <option value="">Sélectionner ou scanner…</option>
+                {(() => {
+                  const groups = {}
+                  bougiesDisponibles.forEach(b => {
+                    const fam  = b.familles?.nom     || 'Sans famille'
+                    const sfam = b.sous_familles?.nom || ''
+                    const grp  = sfam ? fam + ' › ' + sfam : fam
+                    if (!groups[grp]) groups[grp] = []
+                    const s = stock.find(s => s.bougie_id === b.id && s.lieu_id === selectedLieu)
+                    const desc = b.description ? ' — ' + b.description : ''
+                    const qteInfo = s ? ' (' + s.quantite + ' en stock)' : ''
+                    groups[grp].push({ id: b.id, label: b.nom + desc + qteInfo })
+                  })
+                  return Object.entries(groups).sort(([a],[b]) => a.localeCompare(b)).map(([grp, items]) => (
+                    <optgroup key={grp} label={grp}>
+                      {items.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+                    </optgroup>
+                  ))
+                })()}
+              </select>
+              <button
+                onClick={scanning ? stopScan : startScan}
+                disabled={!selectedLieu}
+                title="Scanner un QR code"
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                  scanning
+                    ? 'bg-red-50 border-red-300 text-red-600 hover:bg-red-100'
+                    : 'bg-stone-100 border-stone-300 text-stone-600 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700 disabled:opacity-40'
+                }`}
+              >
+                {scanning ? <X className="w-4 h-4" /> : <QrCode className="w-4 h-4" />}
+                <span className="hidden sm:block">{scanning ? 'Stop' : 'Scanner'}</span>
+              </button>
+            </div>
+
+            {/* Zone caméra QR */}
+            {scanning && (
+              <div className="mt-3 rounded-xl overflow-hidden border border-stone-200 bg-black relative">
+                <video ref={videoRef} className="w-full max-h-56 object-cover" muted playsInline />
+                <canvas ref={canvasRef} className="hidden" />
+                {/* Viseur */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="w-44 h-44 border-2 border-amber-400 rounded-xl opacity-80" />
+                </div>
+                <p className="absolute bottom-2 left-0 right-0 text-center text-white text-xs bg-black/40 py-1">
+                  {scanMsg}
+                </p>
+              </div>
+            )}
+            {scanError && <p className="text-xs text-red-600 mt-1">{scanError}</p>}
+            {!scanning && scanMsg && selectedBougie && (
+              <p className="text-xs text-green-600 mt-1">{scanMsg}</p>
+            )}
             {selectedLieu && bougiesDisponibles.length === 0 && (
               <p className="text-xs text-orange-600 mt-1">Aucune bougie disponible dans ce lieu.</p>
             )}
@@ -140,17 +256,15 @@ export default function SortiePage() {
           {selectedBougie && selectedLieu && (
             <div className={
               'flex items-center gap-2 rounded-lg px-4 py-3 text-sm ' +
-              (disponible === 0
-                ? 'bg-red-50 text-red-700 border border-red-200'
-                : stockBas
-                  ? 'bg-orange-50 text-orange-700 border border-orange-200'
-                  : 'bg-stone-50 text-stone-600')
+              (disponible === 0 ? 'bg-red-50 text-red-700 border border-red-200'
+                : stockBas ? 'bg-orange-50 text-orange-700 border border-orange-200'
+                : 'bg-stone-50 text-stone-600')
             }>
               {disponible === 0
-                ? <><AlertTriangle className="w-4 h-4 shrink-0" /><span>Stock épuisé — impossible de faire une sortie.</span></>
+                ? <><AlertTriangle className="w-4 h-4 shrink-0" /><span>Stock épuisé.</span></>
                 : stockBas
-                  ? <><AlertTriangle className="w-4 h-4 shrink-0" /><span>Stock bas : <strong>{disponible}</strong> unité{disponible > 1 ? 's' : ''} disponible{disponible > 1 ? 's' : ''}</span></>
-                  : <span>Stock disponible : <strong>{disponible}</strong> unité{disponible > 1 ? 's' : ''}</span>
+                  ? <><AlertTriangle className="w-4 h-4 shrink-0" /><span>Stock bas : <strong>{disponible}</strong> unité(s)</span></>
+                  : <span>Stock disponible : <strong>{disponible}</strong> unité(s)</span>
               }
             </div>
           )}
@@ -158,33 +272,22 @@ export default function SortiePage() {
           {/* Quantité */}
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Quantité à sortir</label>
-            <input
-              type="number"
-              min="1"
-              max={disponible || undefined}
+            <input type="number" min="1" max={disponible || undefined}
               className={'input-field ' + (depassement ? 'border-red-400 focus:ring-red-400' : '')}
-              placeholder="ex : 12"
-              value={qte}
+              placeholder="ex : 12" value={qte}
               onChange={e => { setQte(e.target.value); setError(''); setSuccess('') }}
-              disabled={!selectedBougie || disponible === 0}
-            />
+              disabled={!selectedBougie || disponible === 0} />
             {depassement && (
-              <p className="text-xs text-red-600 mt-1">
-                Maximum {disponible} unité{disponible > 1 ? 's' : ''} disponible{disponible > 1 ? 's' : ''}.
-              </p>
+              <p className="text-xs text-red-600 mt-1">Maximum {disponible} unité(s) disponible(s).</p>
             )}
           </div>
 
           {/* Motif */}
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Motif (optionnel)</label>
-            <input
-              type="text"
-              className="input-field"
+            <input type="text" className="input-field"
               placeholder="ex : Messe du dimanche, Baptême…"
-              value={motif}
-              onChange={e => setMotif(e.target.value)}
-            />
+              value={motif} onChange={e => setMotif(e.target.value)} />
           </div>
 
           {error && (
@@ -193,9 +296,7 @@ export default function SortiePage() {
             </div>
           )}
           {success && (
-            <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">
-              ✓ {success}
-            </div>
+            <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">✓ {success}</div>
           )}
 
           <div className="flex gap-3 pt-1">
@@ -203,11 +304,9 @@ export default function SortiePage() {
               ? <button onClick={reset} className="btn-primary w-full">Nouvelle sortie</button>
               : <>
                   <button onClick={reset} className="btn-secondary flex-1" disabled={saving}>Réinitialiser</button>
-                  <button
-                    onClick={handleSortie}
+                  <button onClick={handleSortie}
                     disabled={saving || !selectedLieu || !selectedBougie || !qte || qteNum <= 0 || depassement || disponible === 0}
-                    className="flex-1 flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
+                    className="flex-1 flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                     <MinusCircle className="w-4 h-4" />
                     {saving ? 'Enregistrement…' : 'Confirmer la sortie'}
                   </button>
