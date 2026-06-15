@@ -249,7 +249,7 @@ export default function StockPage() {
     <div className="flex flex-col h-full">
       {/* En-tête */}
       <div className="px-6 py-4 border-b border-stone-200 bg-white flex flex-wrap items-center gap-3">
-        <h1 className="font-serif font-bold text-xl text-stone-800 mr-auto">Stock de bougies</h1>
+        <h1 className="font-serif font-bold text-xl text-stone-800 mr-auto">Stock d'articles</h1>
         {isAdmin && (
           <>
             <button onClick={() => setShowImport(true)} className="btn-secondary flex items-center gap-2 text-sm">
@@ -334,7 +334,7 @@ export default function StockPage() {
               </thead>
               <tbody>
                 {globalData.length === 0 && (
-                  <tr><td colSpan="10" className="py-8 text-center text-stone-400">Aucune bougie enregistrée</td></tr>
+                  <tr><td colSpan="10" className="py-8 text-center text-stone-400">Aucun article enregistré</td></tr>
                 )}
                 {groupByFamille(globalData).map(groupe => (
                   groupe.sousFamilles && Object.values(groupe.sousFamilles).map((sfGroup, sfIdx) => (
@@ -410,7 +410,7 @@ export default function StockPage() {
               </thead>
               <tbody>
                 {lieuData.length === 0 && (
-                  <tr><td colSpan="5" className="py-8 text-center text-stone-400">Aucun stock pour ce lieu</td></tr>
+                  <tr><td colSpan="5" className="py-8 text-center text-stone-400">Aucun article en stock pour ce lieu</td></tr>
                 )}
                 {groupByFamille(lieuData).map(groupe => (
                   groupe.sousFamilles && Object.values(groupe.sousFamilles).map((sfGroup, sfIdx) => (

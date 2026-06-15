@@ -100,7 +100,7 @@ export default function HistoriquePage() {
         </div>
         <div>
           <select className="input-field text-sm py-1.5" value={filterBougie} onChange={e => setFilterBougie(e.target.value)}>
-            <option value="">Toutes les bougies</option>
+            <option value="">Tous les articles</option>
             {bougies.map(b => <option key={b.id} value={b.id}>{b.nom}</option>)}
           </select>
         </div>
@@ -127,7 +127,7 @@ export default function HistoriquePage() {
               <tr className="border-b border-stone-200 text-stone-500 text-xs uppercase tracking-wide">
                 <th className="text-left py-3 pr-4 font-medium">Date</th>
                 <th className="text-left py-3 pr-4 font-medium">Type</th>
-                <th className="text-left py-3 pr-4 font-medium">Bougie</th>
+                <th className="text-left py-3 pr-4 font-medium">Article</th>
                 <th className="text-left py-3 pr-4 font-medium">Lieu</th>
                 <th className="text-right py-3 pr-4 font-medium">Quantité</th>
                 <th className="text-left py-3 pr-4 font-medium">Motif</th>

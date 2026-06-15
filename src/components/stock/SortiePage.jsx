@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
-import { MinusCircle, AlertTriangle, QrCode, X } from 'lucide-react'
+import { MinusCircle, AlertTriangle, QrCode, X, Info, Flame } from 'lucide-react'
+import Modal from '../shared/Modal'
 
 // Chargement dynamique de la lib QR (jsQR via CDN)
 function loadJsQR() {
@@ -26,6 +27,9 @@ export default function SortiePage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+
+  // Popup info article
+  const [showInfo, setShowInfo] = useState(false)
 
   // QR scan
   const [scanning, setScanning] = useState(false)
@@ -105,11 +109,11 @@ export default function SortiePage() {
         )
         if (found) {
           setSelectedBougie(found.id)
-          setScanMsg('✓ Bougie détectée : ' + found.nom)
+          setScanMsg('✓ Article détecté : ' + found.nom)
           stopScan()
           setError(''); setSuccess('')
         } else {
-          setScanMsg('QR lu : "' + texte + '" — bougie non trouvée, réessayez')
+          setScanMsg('QR lu : "' + texte + '" — article non trouvé, réessayez')
           rafRef.current = requestAnimationFrame(() => scanFrame(jsQR))
         }
         return
@@ -127,6 +131,7 @@ export default function SortiePage() {
   const depassement = qte !== '' && qteNum > disponible
   const nomLieu = lieux.find(l => l.id === selectedLieu)?.nom
   const nomBougie = bougies.find(b => b.id === selectedBougie)?.nom
+  const selectedArticle = bougies.find(b => b.id === selectedBougie)
   const stockBas = selectedBougie && selectedLieu && stockCourant?.seuil_alerte !== null
     && disponible <= (stockCourant?.seuil_alerte ?? 0) && disponible > 0
 
@@ -138,7 +143,7 @@ export default function SortiePage() {
 
   async function handleSortie() {
     setError(''); setSuccess('')
-    if (!selectedLieu || !selectedBougie) { setError('Sélectionne un lieu et un type de bougie.'); return }
+    if (!selectedLieu || !selectedBougie) { setError('Sélectionne un lieu et un article.'); return }
     if (!qte || qteNum <= 0) { setError('La quantité doit être supérieure à 0.'); return }
     if (qteNum > disponible) { setError('Stock insuffisant. Il reste ' + disponible + ' unité(s) à ' + nomLieu + '.'); return }
     setSaving(true)
@@ -171,7 +176,7 @@ export default function SortiePage() {
     <div className="flex flex-col h-full">
       <div className="px-6 py-4 border-b border-stone-200 bg-white">
         <h1 className="font-serif font-bold text-xl text-stone-800">Sortie de stock</h1>
-        <p className="text-stone-500 text-sm mt-0.5">Enregistrer une consommation ou une utilisation de bougies</p>
+        <p className="text-stone-500 text-sm mt-0.5">Enregistrer une consommation ou une utilisation d'articles</p>
       </div>
 
       <div className="flex-1 overflow-auto p-6">
@@ -187,9 +192,9 @@ export default function SortiePage() {
             </select>
           </div>
 
-          {/* Bougie — liste + bouton scan QR */}
+          {/* Article — liste + bouton scan QR + info */}
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Référence de bougie</label>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Référence article</label>
             <div className="flex gap-2">
               <select className="input-field" value={selectedBougie}
                 onChange={e => { setSelectedBougie(e.target.value); setQte(''); setError(''); setSuccess('') }}
@@ -227,6 +232,12 @@ export default function SortiePage() {
                 {scanning ? <X className="w-4 h-4" /> : <QrCode className="w-4 h-4" />}
                 <span className="hidden sm:block">{scanning ? 'Stop' : 'Scanner'}</span>
               </button>
+              {selectedBougie && (
+                <button onClick={() => setShowInfo(true)} title="Voir la fiche article"
+                  className="shrink-0 flex items-center px-3 py-2 rounded-lg border bg-stone-100 border-stone-300 text-stone-600 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors">
+                  <Info className="w-4 h-4" />
+                </button>
+              )}
             </div>
 
             {/* Zone caméra QR */}
@@ -248,7 +259,7 @@ export default function SortiePage() {
               <p className="text-xs text-green-600 mt-1">{scanMsg}</p>
             )}
             {selectedLieu && bougiesDisponibles.length === 0 && (
-              <p className="text-xs text-orange-600 mt-1">Aucune bougie disponible dans ce lieu.</p>
+              <p className="text-xs text-orange-600 mt-1">Aucun article disponible dans ce lieu.</p>
             )}
           </div>
 
@@ -301,7 +312,7 @@ export default function SortiePage() {
 
           <div className="flex gap-3 pt-1">
             {success
-              ? <button onClick={reset} className="btn-primary w-full">Nouvelle sortie</button>
+              ? <button onClick={reset} className="btn-primary w-full">Nouvel enregistrement</button>
               : <>
                   <button onClick={reset} className="btn-secondary flex-1" disabled={saving}>Réinitialiser</button>
                   <button onClick={handleSortie}
@@ -315,6 +326,30 @@ export default function SortiePage() {
           </div>
         </div>
       </div>
+
+      {/* Popup fiche article */}
+      {showInfo && selectedArticle && (
+        <Modal title={'Fiche article — ' + selectedArticle.nom} onClose={() => setShowInfo(false)} size="sm">
+          <div className="space-y-4">
+            {selectedArticle.photo_url
+              ? <img src={selectedArticle.photo_url} alt={selectedArticle.nom}
+                  className="w-full max-h-48 object-contain rounded-xl border border-stone-100" />
+              : <div className="w-full h-32 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center">
+                  <Flame className="w-10 h-10 text-amber-200" />
+                </div>
+            }
+            {(selectedArticle.familles?.nom || selectedArticle.sous_familles?.nom) && (
+              <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded inline-block">
+                {selectedArticle.familles?.nom}{selectedArticle.sous_familles?.nom ? ' › ' + selectedArticle.sous_familles.nom : ''}
+              </p>
+            )}
+            {selectedArticle.description
+              ? <p className="text-sm text-stone-600">{selectedArticle.description}</p>
+              : <p className="text-sm text-stone-400 italic">Aucune description pour cet article.</p>
+            }
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

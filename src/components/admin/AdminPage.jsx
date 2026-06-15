@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
-import { Plus, Trash2, Bell, Users, MapPin, Flame, UserPlus, Pencil, Image, KeyRound, Tag, Filter } from 'lucide-react'
+import { Plus, Trash2, Bell, Users, MapPin, Flame, UserPlus, Pencil, Image, KeyRound, Tag } from 'lucide-react'
 import Modal from '../shared/Modal'
 
 export default function AdminPage() {
@@ -37,6 +37,9 @@ export default function AdminPage() {
   const [newBougieDesc, setNewBougieDesc] = useState('')
   const [newBougieFamilleId, setNewBougieFamilleId] = useState('')
   const [newBougieSousFamilleId, setNewBougieSousFamilleId] = useState('')
+  const [newBougiePhotoFile, setNewBougiePhotoFile] = useState(null)
+  const [newBougiePhotoPreview, setNewBougiePhotoPreview] = useState(null)
+  const newPhotoInputRef = useRef(null)
   const [editBougie, setEditBougie] = useState(null) // bougie complète
   const [editNom, setEditNom] = useState('')
   const [editDesc, setEditDesc] = useState('')
@@ -124,16 +127,30 @@ export default function AdminPage() {
   async function addBougie() {
     if (!newBougieNom.trim()) return
     setSaving(true)
-    await supabase.from('bougies').insert({
+    const { data: inserted } = await supabase.from('bougies').insert({
       nom: newBougieNom.trim(),
       description: newBougieDesc.trim() || null,
       famille_id: newBougieFamilleId || null,
       sous_famille_id: newBougieSousFamilleId || null,
-    })
+    }).select().single()
+
+    if (inserted && newBougiePhotoFile) {
+      const ext = newBougiePhotoFile.name.split('.').pop()
+      const path = `${inserted.id}.${ext}`
+      const { error: upErr } = await supabase.storage
+        .from('bougies-photos').upload(path, newBougiePhotoFile, { upsert: true })
+      if (!upErr) {
+        const { data } = supabase.storage.from('bougies-photos').getPublicUrl(path)
+        await supabase.from('bougies').update({ photo_url: data.publicUrl }).eq('id', inserted.id)
+      }
+    }
+
     setNewBougieNom('')
     setNewBougieDesc('')
     setNewBougieFamilleId('')
     setNewBougieSousFamilleId('')
+    setNewBougiePhotoFile(null)
+    setNewBougiePhotoPreview(null)
     setSaving(false)
     loadAll()
   }
@@ -189,7 +206,7 @@ export default function AdminPage() {
   }
 
   async function deleteBougie(id) {
-    if (!window.confirm('Supprimer cette référence ? Tout le stock associé sera également supprimé.')) return
+    if (!window.confirm('Supprimer cet article ? Tout le stock associé sera également supprimé.')) return
     await supabase.from('bougies').delete().eq('id', id)
     loadAll()
   }
@@ -331,7 +348,7 @@ export default function AdminPage() {
   const tabs = [
     { id: 'lieux',    label: 'Lieux',          icon: MapPin },
     { id: 'familles', label: 'Familles',        icon: Tag },
-    { id: 'bougies',  label: 'Bougies',         icon: Flame },
+    { id: 'bougies',  label: 'Articles',         icon: Flame },
     { id: 'seuils',   label: "Seuils d'alerte", icon: Bell },
     { id: 'users',    label: 'Utilisateurs',    icon: Users },
   ]
@@ -340,7 +357,7 @@ export default function AdminPage() {
     <div className="flex flex-col h-full">
       <div className="px-6 py-4 border-b border-stone-200 bg-white">
         <h1 className="font-serif font-bold text-xl text-stone-800">Administration</h1>
-        <p className="text-stone-500 text-sm mt-0.5">Gestion des références, lieux, seuils et accès</p>
+        <p className="text-stone-500 text-sm mt-0.5">Gestion des articles, lieux, seuils et accès</p>
       </div>
 
       {/* Sous-onglets */}
@@ -490,9 +507,9 @@ export default function AdminPage() {
           <div className="space-y-4">
             {/* Formulaire d'ajout */}
             <div className="card max-w-2xl space-y-3">
-              <h2 className="font-medium text-stone-700">Ajouter une référence</h2>
+              <h2 className="font-medium text-stone-700">Ajouter un article</h2>
               <div className="grid grid-cols-2 gap-3">
-                <input type="text" className="input-field col-span-2" placeholder="Nom de la bougie (ex : Cierge pascal)"
+                <input type="text" className="input-field col-span-2" placeholder="Nom de l'article (ex : Cierge pascal)"
                   value={newBougieNom} onChange={e => setNewBougieNom(e.target.value)} />
                 <input type="text" className="input-field col-span-2" placeholder="Description (optionnel)"
                   value={newBougieDesc} onChange={e => setNewBougieDesc(e.target.value)} />
@@ -516,9 +533,39 @@ export default function AdminPage() {
                   </select>
                 </div>
               </div>
+              {/* Photo */}
+              <div>
+                <label className="block text-xs font-medium text-stone-500 mb-2">Photo (optionnel)</label>
+                <div className="flex items-center gap-4">
+                  {newBougiePhotoPreview
+                    ? <img src={newBougiePhotoPreview} alt="aperçu" className="w-16 h-16 rounded-xl object-cover border border-stone-200" />
+                    : <div className="w-16 h-16 rounded-xl bg-amber-50 border-2 border-dashed border-amber-200 flex items-center justify-center">
+                        <Image className="w-5 h-5 text-amber-300" />
+                      </div>
+                  }
+                  <div>
+                    <button onClick={() => newPhotoInputRef.current?.click()}
+                      className="btn-secondary text-xs flex items-center gap-1.5">
+                      <Image className="w-3.5 h-3.5" />
+                      {newBougiePhotoPreview ? 'Changer' : 'Ajouter une photo'}
+                    </button>
+                    {newBougiePhotoPreview && (
+                      <button onClick={() => { setNewBougiePhotoPreview(null); setNewBougiePhotoFile(null) }}
+                        className="block mt-1 text-xs text-red-500 hover:underline">Supprimer</button>
+                    )}
+                  </div>
+                  <input ref={newPhotoInputRef} type="file" accept="image/*" className="hidden"
+                    onChange={e => {
+                      const f = e.target.files[0]
+                      if (!f) return
+                      setNewBougiePhotoFile(f)
+                      setNewBougiePhotoPreview(URL.createObjectURL(f))
+                    }} />
+                </div>
+              </div>
               <button onClick={addBougie} disabled={saving || !newBougieNom.trim()}
                 className="btn-primary flex items-center gap-1">
-                <Plus className="w-4 h-4" /> Ajouter la référence
+                <Plus className="w-4 h-4" /> {saving ? 'Ajout en cours…' : 'Ajouter l\'article'}
               </button>
             </div>
 
@@ -527,7 +574,7 @@ export default function AdminPage() {
               {/* Barre filtres */}
               <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <span className="font-medium text-stone-700 mr-auto">
-                  {bougies.length} référence{bougies.length !== 1 ? 's' : ''}
+                  {bougies.length} article{bougies.length !== 1 ? 's' : ''}
                 </span>
                 <Tag className="w-4 h-4 text-amber-500 shrink-0" />
                 <select className="input-field w-auto text-sm py-1.5" value={adminFilterFamilleId}
@@ -660,13 +707,13 @@ export default function AdminPage() {
           <div className="space-y-4">
             <div className="card overflow-x-auto">
               <p className="text-sm text-stone-500 mb-1">
-                <strong>Seuil d'alerte par lieu</strong> — affichage en rouge quand le stock passe en dessous.
+                <strong>Seuil d'alerte par lieu</strong> — affichage en rouge quand le stock d'un article passe en dessous.
               </p>
               <p className="text-xs text-stone-400 mb-4">Cliquer sur une cellule pour modifier.</p>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-stone-200 text-stone-500 text-xs uppercase tracking-wide">
-                    <th className="text-left py-3 pr-4 font-medium">Bougie</th>
+                    <th className="text-left py-3 pr-4 font-medium">Article</th>
                     <th className="text-center py-3 pr-4 font-medium text-blue-600">Qté mini globale</th>
                     {lieux.map(l => (
                       <th key={l.id} className="text-center py-3 pr-4 font-medium">{l.nom}</th>
@@ -674,38 +721,74 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {bougies.map(b => (
-                    <tr key={b.id} className="border-b border-stone-100 hover:bg-stone-50">
-                      <td className="py-3 pr-4 font-medium text-stone-800">{b.nom}</td>
-                      {/* Qté mini globale (sur la table bougies) */}
-                      <td className="py-3 pr-4 text-center">
-                        <button
-                          onClick={() => openEditBougie(b)}
-                          className="px-2 py-1 rounded hover:bg-blue-50 text-stone-600 hover:text-blue-700 transition-colors"
-                          title="Modifier via édition bougie"
-                        >
-                          {b.qte_mini !== null && b.qte_mini !== undefined
-                            ? <span className="font-medium text-blue-600">≥ {b.qte_mini}</span>
-                            : <span className="text-stone-300">—</span>}
-                        </button>
-                      </td>
-                      {/* Seuil par lieu */}
-                      {lieux.map(l => {
-                        const s = stock.find(s => s.bougie_id === b.id && s.lieu_id === l.id)
-                        return (
-                          <td key={l.id} className="py-3 pr-4 text-center">
-                            <button onClick={() => openSeuil(b, l)}
-                              className="px-2 py-1 rounded hover:bg-amber-50 text-stone-600 hover:text-amber-700 transition-colors"
-                              title="Modifier le seuil">
-                              {s?.seuil_alerte !== null && s?.seuil_alerte !== undefined
-                                ? <span className="font-medium text-amber-700">≤ {s.seuil_alerte}</span>
-                                : <span className="text-stone-300">—</span>}
-                            </button>
-                          </td>
+                  {(() => {
+                    const SANS_FAM = '__sans_famille__'
+                    const groups = {}
+                    bougies.forEach(b => {
+                      const famId = b.famille_id || SANS_FAM
+                      const famNom = b.familles?.nom || 'Sans famille'
+                      const sfId = b.sous_famille_id || '__sans_sf__'
+                      const sfNom = b.sous_familles?.nom || null
+                      if (!groups[famId]) groups[famId] = { nom: famNom, order: famId === SANS_FAM ? 'zzz' : famNom, sfs: {} }
+                      if (!groups[famId].sfs[sfId]) groups[famId].sfs[sfId] = { nom: sfNom, bougies: [] }
+                      groups[famId].sfs[sfId].bougies.push(b)
+                    })
+                    const rows = []
+                    Object.values(groups).sort((a, z) => a.order.localeCompare(z.order)).forEach(groupe => {
+                      Object.values(groupe.sfs).sort((a, b) => {
+                        if (!a.nom && !b.nom) return 0
+                        if (!a.nom) return -1
+                        if (!b.nom) return 1
+                        return a.nom.localeCompare(b.nom)
+                      }).forEach((sfGroup, sfIdx) => {
+                        if (sfIdx === 0) rows.push(
+                          <tr key={'fam-' + groupe.nom} className="bg-amber-50 border-b border-amber-100">
+                            <td colSpan={2 + lieux.length} className="py-2 px-3">
+                              <span className="flex items-center gap-2 text-amber-800 font-semibold text-xs uppercase tracking-wide">
+                                <Tag className="w-3.5 h-3.5" /> {groupe.nom}
+                              </span>
+                            </td>
+                          </tr>
                         )
-                      })}
-                    </tr>
-                  ))}
+                        if (sfGroup.nom) rows.push(
+                          <tr key={'sf-' + groupe.nom + sfGroup.nom} className="bg-stone-50 border-b border-stone-100">
+                            <td colSpan={2 + lieux.length} className="py-1.5 pl-7 text-xs text-stone-500 font-medium">
+                              › {sfGroup.nom}
+                            </td>
+                          </tr>
+                        )
+                        sfGroup.bougies.forEach(b => rows.push(
+                          <tr key={b.id} className="border-b border-stone-100 hover:bg-stone-50">
+                            <td className="py-3 pr-4 font-medium text-stone-800 pl-7">{b.nom}</td>
+                            <td className="py-3 pr-4 text-center">
+                              <button onClick={() => openEditBougie(b)}
+                                className="px-2 py-1 rounded hover:bg-blue-50 text-stone-600 hover:text-blue-700 transition-colors"
+                                title="Modifier via édition article">
+                                {b.qte_mini !== null && b.qte_mini !== undefined
+                                  ? <span className="font-medium text-blue-600">≥ {b.qte_mini}</span>
+                                  : <span className="text-stone-300">—</span>}
+                              </button>
+                            </td>
+                            {lieux.map(l => {
+                              const s = stock.find(s => s.bougie_id === b.id && s.lieu_id === l.id)
+                              return (
+                                <td key={l.id} className="py-3 pr-4 text-center">
+                                  <button onClick={() => openSeuil(b, l)}
+                                    className="px-2 py-1 rounded hover:bg-amber-50 text-stone-600 hover:text-amber-700 transition-colors"
+                                    title="Modifier le seuil">
+                                    {s?.seuil_alerte !== null && s?.seuil_alerte !== undefined
+                                      ? <span className="font-medium text-amber-700">≤ {s.seuil_alerte}</span>
+                                      : <span className="text-stone-300">—</span>}
+                                  </button>
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))
+                      })
+                    })
+                    return rows
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -787,7 +870,7 @@ export default function AdminPage() {
 
       {/* Éditer bougie */}
       {editBougie && (
-        <Modal title={'Modifier — ' + editBougie.nom} onClose={() => setEditBougie(null)} size="md">
+        <Modal title={'Modifier l\'article — ' + editBougie.nom} onClose={() => setEditBougie(null)} size="md">
           <div className="space-y-4">
             {/* Photo */}
             <div>
