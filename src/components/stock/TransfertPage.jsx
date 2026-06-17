@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { ArrowRight, QrCode, X, Info, Flame } from 'lucide-react'
 import Modal from '../shared/Modal'
+import ArticleAutocomplete from '../shared/ArticleAutocomplete'
 
 function loadJsQR() {
   return new Promise((resolve) => {
@@ -116,18 +117,6 @@ export default function TransfertPage() {
   const stockSource = getStockForSourceBougie()
   const selectedArticle = bougies.find(b => b.id === bougieId)
 
-  // Groupement par famille/sous-famille pour le select
-  function buildOptions() {
-    const groups = {}
-    bougies.forEach(b => {
-      const fam  = b.familles?.nom    || 'Sans famille'
-      const sfam = b.sous_familles?.nom || ''
-      const grp  = sfam ? fam + ' › ' + sfam : fam
-      if (!groups[grp]) groups[grp] = []
-      groups[grp].push({ id: b.id, label: b.nom + (b.description ? ' — ' + b.description : '') })
-    })
-    return groups
-  }
 
   async function handleTransfert() {
     setError(null); setMessage(null)
@@ -167,7 +156,6 @@ export default function TransfertPage() {
   }
 
   const lieuNom = (id) => lieux.find(l => l.id === id)?.nom || id
-  const optionGroups = buildOptions()
 
   return (
     <div className="flex flex-col h-full">
@@ -183,15 +171,12 @@ export default function TransfertPage() {
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Référence article</label>
             <div className="flex gap-2">
-              <select className="input-field" value={bougieId}
-                onChange={e => { setBougieId(e.target.value); setError(null); setMessage(null) }}>
-                <option value="">Sélectionner un article…</option>
-                {Object.entries(optionGroups).sort(([a],[b]) => a.localeCompare(b)).map(([grp, items]) => (
-                  <optgroup key={grp} label={grp}>
-                    {items.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
-                  </optgroup>
-                ))}
-              </select>
+              <ArticleAutocomplete
+                articles={bougies}
+                value={bougieId}
+                onChange={id => { setBougieId(id || ''); setError(null); setMessage(null) }}
+                placeholder="Rechercher un article…"
+              />
               <button onClick={scanning ? stopScan : startScan}
                 title="Scanner un QR code"
                 className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${

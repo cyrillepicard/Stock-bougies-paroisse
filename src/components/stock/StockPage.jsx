@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
-import { AlertTriangle, Download, Upload, Plus, MapPin, Globe, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Tag } from 'lucide-react'
+import { AlertTriangle, Download, Upload, Plus, MapPin, Globe, ArrowUpDown, ArrowUp, ArrowDown, Pencil, Tag, ChevronDown, ChevronRight } from 'lucide-react'
 import Modal from '../shared/Modal'
 import ImportCSV from './ImportCSV'
 import Papa from 'papaparse'
@@ -36,6 +36,26 @@ export default function StockPage() {
   // Filtres famille/sous-famille
   const [filterFamilleId, setFilterFamilleId] = useState('')
   const [filterSousFamilleId, setFilterSousFamilleId] = useState('')
+
+  // Repliage — familles ouvertes par défaut, sous-familles fermées par défaut
+  const [collapsedFamilles, setCollapsedFamilles] = useState(new Set())
+  const [expandedSousFamilles, setExpandedSousFamilles] = useState(new Set())
+
+  function toggleFamille(key) {
+    setCollapsedFamilles(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+
+  function toggleSousFamille(key) {
+    setExpandedSousFamilles(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
 
   // Tri
   const [sortColGlobal, setSortColGlobal] = useState('nom')
@@ -123,6 +143,8 @@ export default function StockPage() {
         description: s.bougies?.description || '',
         famille_id: s.bougies?.famille_id,
         sous_famille_id: s.bougies?.sous_famille_id,
+        familles: s.bougies?.familles,
+        sous_familles: s.bougies?.sous_familles,
         alerte: s.seuil_alerte !== null && s.quantite <= s.seuil_alerte,
       }))
     return applySort(rows, sortColLieu, sortDirLieu)
@@ -249,7 +271,7 @@ export default function StockPage() {
     <div className="flex flex-col h-full">
       {/* En-tête */}
       <div className="px-6 py-4 border-b border-stone-200 bg-white flex flex-wrap items-center gap-3">
-        <h1 className="font-serif font-bold text-xl text-stone-800 mr-auto">Gestion de Stock Paroisse</h1>
+        <h1 className="font-serif font-bold text-xl text-stone-800 mr-auto">Stock Global</h1>
         {isAdmin && (
           <>
             <button onClick={() => setShowImport(true)} className="btn-secondary flex items-center gap-2 text-sm">
@@ -323,7 +345,7 @@ export default function StockPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-200 text-stone-500 text-xs uppercase tracking-wide">
-                  <ThSort col="nom"         label="Bougie"       sortCol={sortColGlobal} sortDir={sortDirGlobal} onSort={onSortGlobal} className="text-left" />
+                  <ThSort col="nom"         label="Article"       sortCol={sortColGlobal} sortDir={sortDirGlobal} onSort={onSortGlobal} className="text-left" />
                   <ThSort col="description" label="Désignation"  sortCol={sortColGlobal} sortDir={sortDirGlobal} onSort={onSortGlobal} className="text-left" />
                   <ThSort col="total"       label="Stock total"  sortCol={sortColGlobal} sortDir={sortDirGlobal} onSort={onSortGlobal} className="text-right" />
                   {lieux.map(l => (
@@ -336,54 +358,74 @@ export default function StockPage() {
                 {globalData.length === 0 && (
                   <tr><td colSpan="10" className="py-8 text-center text-stone-400">Aucun article enregistré</td></tr>
                 )}
-                {groupByFamille(globalData).map(groupe => (
-                  groupe.sousFamilles && Object.values(groupe.sousFamilles).map((sfGroup, sfIdx) => (
-                    <>
-                      {/* En-tête famille (affiché une seule fois avant la 1ère sous-famille) */}
-                      {sfIdx === 0 && (
-                        <tr key={'fam-' + groupe.nom} className="bg-amber-50 border-b border-amber-100">
-                          <td colSpan={4 + lieux.length} className="py-2 px-3">
-                            <span className="flex items-center gap-2 text-amber-800 font-semibold text-xs uppercase tracking-wide">
-                              <Tag className="w-3.5 h-3.5" /> {groupe.nom}
-                            </span>
-                          </td>
-                        </tr>
-                      )}
-                      {/* En-tête sous-famille si elle existe */}
-                      {sfGroup.nom && (
-                        <tr key={'sf-' + sfGroup.nom} className="bg-stone-50 border-b border-stone-100">
-                          <td colSpan={4 + lieux.length} className="py-1.5 pl-7 text-xs text-stone-500 font-medium">
-                            › {sfGroup.nom}
-                          </td>
-                        </tr>
-                      )}
-                      {sfGroup.rows.map(({ bougie, total, parLieu, alertes, description }) => (
-                        <tr key={bougie.id} className="border-b border-stone-100 hover:bg-stone-50">
-                          <td className="py-3 pr-4 font-medium text-stone-800 pl-7">{bougie.nom}</td>
-                          <td className="py-3 pr-4 text-stone-500 text-xs">{description || '—'}</td>
-                          <td className="py-3 pr-4 text-right font-bold text-stone-700">{total}</td>
-                          {lieux.map(l => {
-                            const s = parLieu[l.id]
-                            const isAlert = s && s.seuil !== null && s.qte <= s.seuil
-                            return (
-                              <td key={l.id} className="py-3 pr-4 text-right">
-                                <span className={isAlert ? 'text-red-600 font-bold' : 'text-stone-600'}>
-                                  {s ? s.qte : '—'}
+                {groupByFamille(globalData).map(groupe => {
+                  const famKey = groupe.nom
+                  const famOpen = !collapsedFamilles.has(famKey)
+                  return groupe.sousFamilles.map((sfGroup, sfIdx) => {
+                    const sfKey = famKey + '|||' + (sfGroup.nom || '')
+                    const sfOpen = !sfGroup.nom || expandedSousFamilles.has(sfKey)
+                    return (
+                      <>
+                        {sfIdx === 0 && (
+                          <tr key={'fam-' + famKey}
+                            className="bg-amber-50 border-b border-amber-100 cursor-pointer select-none hover:bg-amber-100 transition-colors"
+                            onClick={() => toggleFamille(famKey)}>
+                            <td colSpan={4 + lieux.length} className="py-2 px-3">
+                              <span className="flex items-center gap-2 text-amber-800 font-semibold text-xs uppercase tracking-wide">
+                                {famOpen
+                                  ? <ChevronDown className="w-3.5 h-3.5" />
+                                  : <ChevronRight className="w-3.5 h-3.5" />}
+                                <Tag className="w-3.5 h-3.5" /> {groupe.nom}
+                                <span className="ml-auto font-normal text-amber-600 normal-case">
+                                  {groupe.sousFamilles.reduce((n, sf) => n + sf.rows.length, 0)} article{groupe.sousFamilles.reduce((n, sf) => n + sf.rows.length, 0) !== 1 ? 's' : ''}
                                 </span>
-                                {isAlert && <AlertTriangle className="inline w-3 h-3 text-red-500 ml-1" />}
-                              </td>
-                            )
-                          })}
-                          <td className="py-3 text-right">
-                            {alertes.length > 0
-                              ? <span className="badge-alert">⚠ {alertes.join(', ')}</span>
-                              : <span className="badge-ok">OK</span>}
-                          </td>
-                        </tr>
-                      ))}
-                    </>
-                  ))
-                ))}
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                        {famOpen && sfGroup.nom && (
+                          <tr key={'sf-' + sfKey}
+                            className="bg-stone-50 border-b border-stone-100 cursor-pointer select-none hover:bg-stone-100 transition-colors"
+                            onClick={() => toggleSousFamille(sfKey)}>
+                            <td colSpan={4 + lieux.length} className="py-1.5 pl-5 text-xs text-stone-500 font-medium">
+                              <span className="flex items-center gap-1.5">
+                                {sfOpen
+                                  ? <ChevronDown className="w-3 h-3" />
+                                  : <ChevronRight className="w-3 h-3" />}
+                                {sfGroup.nom}
+                                <span className="ml-1 text-stone-400">({sfGroup.rows.length})</span>
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                        {famOpen && sfOpen && sfGroup.rows.map(({ bougie, total, parLieu, alertes, description }) => (
+                          <tr key={bougie.id} className="border-b border-stone-100 hover:bg-stone-50">
+                            <td className="py-3 pr-4 font-medium text-stone-800 pl-9">{bougie.nom}</td>
+                            <td className="py-3 pr-4 text-stone-500 text-xs">{description || '—'}</td>
+                            <td className="py-3 pr-4 text-right font-bold text-stone-700">{total}</td>
+                            {lieux.map(l => {
+                              const s = parLieu[l.id]
+                              const isAlert = s && s.seuil !== null && s.qte <= s.seuil
+                              return (
+                                <td key={l.id} className="py-3 pr-4 text-right">
+                                  <span className={isAlert ? 'text-red-600 font-bold' : 'text-stone-600'}>
+                                    {s ? s.qte : '—'}
+                                  </span>
+                                  {isAlert && <AlertTriangle className="inline w-3 h-3 text-red-500 ml-1" />}
+                                </td>
+                              )
+                            })}
+                            <td className="py-3 text-right">
+                              {alertes.length > 0
+                                ? <span className="badge-alert">⚠ {alertes.join(', ')}</span>
+                                : <span className="badge-ok">OK</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </>
+                    )
+                  })
+                })}
               </tbody>
             </table>
           </div>
@@ -401,7 +443,7 @@ export default function StockPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-200 text-stone-500 text-xs uppercase tracking-wide">
-                  <ThSort col="nom"          label="Bougie"       sortCol={sortColLieu} sortDir={sortDirLieu} onSort={onSortLieu} className="text-left" />
+                  <ThSort col="nom"          label="Article"       sortCol={sortColLieu} sortDir={sortDirLieu} onSort={onSortLieu} className="text-left" />
                   <ThSort col="description"  label="Désignation"  sortCol={sortColLieu} sortDir={sortDirLieu} onSort={onSortLieu} className="text-left" />
                   <ThSort col="quantite"     label="Quantité"     sortCol={sortColLieu} sortDir={sortDirLieu} onSort={onSortLieu} className="text-right" />
                   <ThSort col="seuil_alerte" label="Seuil alerte" sortCol={sortColLieu} sortDir={sortDirLieu} onSort={onSortLieu} className="text-right" />
@@ -412,58 +454,80 @@ export default function StockPage() {
                 {lieuData.length === 0 && (
                   <tr><td colSpan="5" className="py-8 text-center text-stone-400">Aucun article en stock pour ce lieu</td></tr>
                 )}
-                {groupByFamille(lieuData).map(groupe => (
-                  groupe.sousFamilles && Object.values(groupe.sousFamilles).map((sfGroup, sfIdx) => (
-                    <>
-                      {sfIdx === 0 && (
-                        <tr key={'fam-' + groupe.nom} className="bg-amber-50 border-b border-amber-100">
-                          <td colSpan="5" className="py-2 px-3">
-                            <span className="flex items-center gap-2 text-amber-800 font-semibold text-xs uppercase tracking-wide">
-                              <Tag className="w-3.5 h-3.5" /> {groupe.nom}
-                            </span>
-                          </td>
-                        </tr>
-                      )}
-                      {sfGroup.nom && (
-                        <tr key={'sf-' + sfGroup.nom} className="bg-stone-50 border-b border-stone-100">
-                          <td colSpan="5" className="py-1.5 pl-7 text-xs text-stone-500 font-medium">
-                            › {sfGroup.nom}
-                          </td>
-                        </tr>
-                      )}
-                      {sfGroup.rows.map(s => (
-                        <tr key={s.id} className={`border-b border-stone-100 hover:bg-stone-50 ${s.alerte ? 'bg-red-50' : ''}`}>
-                          <td className="py-3 pr-4 font-medium text-stone-800 pl-7">
-                            <div className="flex items-center gap-2">
-                              {s.alerte && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />}
-                              {s.nom}
-                            </div>
-                          </td>
-                          <td className="py-3 pr-4 text-stone-500 text-xs">{s.description || '—'}</td>
-                          <td className={`py-3 pr-4 text-right font-bold text-lg ${s.alerte ? 'text-red-600' : 'text-stone-800'}`}>
-                            {s.quantite}
-                          </td>
-                          <td className="py-3 pr-4 text-right text-stone-500">{s.seuil_alerte ?? '—'}</td>
-                          <td className="py-3 text-right">
-                            <div className="flex gap-1.5 justify-end">
-                              <button onClick={() => openModal('entree', s)}
-                                className="flex items-center gap-1 px-2 py-1 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg text-xs font-medium transition-colors">
-                                <Plus className="w-3 h-3" /> Entrée
-                              </button>
-                              {isAdmin && (
-                                <button onClick={() => openModal('edit', s)}
-                                  title="Correction manuelle du stock"
-                                  className="flex items-center gap-1 px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-medium transition-colors">
-                                  <Pencil className="w-3 h-3" />
+                {groupByFamille(lieuData).map(groupe => {
+                  const famKey = groupe.nom
+                  const famOpen = !collapsedFamilles.has(famKey)
+                  return groupe.sousFamilles.map((sfGroup, sfIdx) => {
+                    const sfKey = famKey + '|||' + (sfGroup.nom || '')
+                    const sfOpen = !sfGroup.nom || expandedSousFamilles.has(sfKey)
+                    return (
+                      <>
+                        {sfIdx === 0 && (
+                          <tr key={'fam-' + famKey}
+                            className="bg-amber-50 border-b border-amber-100 cursor-pointer select-none hover:bg-amber-100 transition-colors"
+                            onClick={() => toggleFamille(famKey)}>
+                            <td colSpan="5" className="py-2 px-3">
+                              <span className="flex items-center gap-2 text-amber-800 font-semibold text-xs uppercase tracking-wide">
+                                {famOpen
+                                  ? <ChevronDown className="w-3.5 h-3.5" />
+                                  : <ChevronRight className="w-3.5 h-3.5" />}
+                                <Tag className="w-3.5 h-3.5" /> {groupe.nom}
+                                <span className="ml-auto font-normal text-amber-600 normal-case">
+                                  {groupe.sousFamilles.reduce((n, sf) => n + sf.rows.length, 0)} article{groupe.sousFamilles.reduce((n, sf) => n + sf.rows.length, 0) !== 1 ? 's' : ''}
+                                </span>
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                        {famOpen && sfGroup.nom && (
+                          <tr key={'sf-' + sfKey}
+                            className="bg-stone-50 border-b border-stone-100 cursor-pointer select-none hover:bg-stone-100 transition-colors"
+                            onClick={() => toggleSousFamille(sfKey)}>
+                            <td colSpan="5" className="py-1.5 pl-5 text-xs text-stone-500 font-medium">
+                              <span className="flex items-center gap-1.5">
+                                {sfOpen
+                                  ? <ChevronDown className="w-3 h-3" />
+                                  : <ChevronRight className="w-3 h-3" />}
+                                {sfGroup.nom}
+                                <span className="ml-1 text-stone-400">({sfGroup.rows.length})</span>
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                        {famOpen && sfOpen && sfGroup.rows.map(s => (
+                          <tr key={s.id} className={`border-b border-stone-100 hover:bg-stone-50 ${s.alerte ? 'bg-red-50' : ''}`}>
+                            <td className="py-3 pr-4 font-medium text-stone-800 pl-9">
+                              <div className="flex items-center gap-2">
+                                {s.alerte && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />}
+                                {s.nom}
+                              </div>
+                            </td>
+                            <td className="py-3 pr-4 text-stone-500 text-xs">{s.description || '—'}</td>
+                            <td className={`py-3 pr-4 text-right font-bold text-lg ${s.alerte ? 'text-red-600' : 'text-stone-800'}`}>
+                              {s.quantite}
+                            </td>
+                            <td className="py-3 pr-4 text-right text-stone-500">{s.seuil_alerte ?? '—'}</td>
+                            <td className="py-3 text-right">
+                              <div className="flex gap-1.5 justify-end">
+                                <button onClick={() => openModal('entree', s)}
+                                  className="flex items-center gap-1 px-2 py-1 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg text-xs font-medium transition-colors">
+                                  <Plus className="w-3 h-3" /> Entrée
                                 </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </>
-                  ))
-                ))}
+                                {isAdmin && (
+                                  <button onClick={() => openModal('edit', s)}
+                                    title="Correction manuelle du stock"
+                                    className="flex items-center gap-1 px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-medium transition-colors">
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </>
+                    )
+                  })
+                })}
               </tbody>
             </table>
           </div>

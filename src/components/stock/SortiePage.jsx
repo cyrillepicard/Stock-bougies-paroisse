@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { MinusCircle, AlertTriangle, QrCode, X, Info, Flame } from 'lucide-react'
 import Modal from '../shared/Modal'
+import ArticleAutocomplete from '../shared/ArticleAutocomplete'
 
 // Chargement dynamique de la lib QR (jsQR via CDN)
 function loadJsQR() {
@@ -192,33 +193,17 @@ export default function SortiePage() {
             </select>
           </div>
 
-          {/* Article — liste + bouton scan QR + info */}
+          {/* Article — saisie assistée + bouton scan QR + info */}
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Référence article</label>
             <div className="flex gap-2">
-              <select className="input-field" value={selectedBougie}
-                onChange={e => { setSelectedBougie(e.target.value); setQte(''); setError(''); setSuccess('') }}
-                disabled={!selectedLieu}>
-                <option value="">Sélectionner ou scanner…</option>
-                {(() => {
-                  const groups = {}
-                  bougiesDisponibles.forEach(b => {
-                    const fam  = b.familles?.nom     || 'Sans famille'
-                    const sfam = b.sous_familles?.nom || ''
-                    const grp  = sfam ? fam + ' › ' + sfam : fam
-                    if (!groups[grp]) groups[grp] = []
-                    const s = stock.find(s => s.bougie_id === b.id && s.lieu_id === selectedLieu)
-                    const desc = b.description ? ' — ' + b.description : ''
-                    const qteInfo = s ? ' (' + s.quantite + ' en stock)' : ''
-                    groups[grp].push({ id: b.id, label: b.nom + desc + qteInfo })
-                  })
-                  return Object.entries(groups).sort(([a],[b]) => a.localeCompare(b)).map(([grp, items]) => (
-                    <optgroup key={grp} label={grp}>
-                      {items.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
-                    </optgroup>
-                  ))
-                })()}
-              </select>
+              <ArticleAutocomplete
+                articles={bougiesDisponibles}
+                value={selectedBougie}
+                onChange={id => { setSelectedBougie(id || ''); setQte(''); setError(''); setSuccess('') }}
+                placeholder="Rechercher un article…"
+                disabled={!selectedLieu}
+              />
               <button
                 onClick={scanning ? stopScan : startScan}
                 disabled={!selectedLieu}
