@@ -406,12 +406,32 @@ export default function StockPage() {
                             {lieux.map(l => {
                               const s = parLieu[l.id]
                               const isAlert = s && s.seuil !== null && s.qte <= s.seuil
+                              const rowForLieu = {
+                                bougie_id: bougie.id,
+                                lieu_id: l.id,
+                                quantite: s?.qte ?? 0,
+                                seuil_alerte: s?.seuil ?? null,
+                              }
                               return (
-                                <td key={l.id} className="py-3 pr-4 text-right">
-                                  <span className={isAlert ? 'text-red-600 font-bold' : 'text-stone-600'}>
-                                    {s ? s.qte : '—'}
-                                  </span>
-                                  {isAlert && <AlertTriangle className="inline w-3 h-3 text-red-500 ml-1" />}
+                                <td key={l.id} className="py-2 pr-2 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <span className={isAlert ? 'text-red-600 font-bold' : 'text-stone-600'}>
+                                      {s ? s.qte : '—'}
+                                    </span>
+                                    {isAlert && <AlertTriangle className="w-3 h-3 text-red-500 shrink-0" />}
+                                    <button onClick={() => openModal('entree', rowForLieu)}
+                                      title={`Entrée — ${l.nom}`}
+                                      className="ml-1 flex items-center px-1.5 py-0.5 bg-green-100 hover:bg-green-200 text-green-700 rounded text-xs font-medium transition-colors">
+                                      <Plus className="w-3 h-3" />
+                                    </button>
+                                    {isAdmin && (
+                                      <button onClick={() => openModal('edit', rowForLieu)}
+                                        title={`Correction — ${l.nom}`}
+                                        className="flex items-center px-1.5 py-0.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-medium transition-colors">
+                                        <Pencil className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </div>
                                 </td>
                               )
                             })}
