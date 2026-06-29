@@ -1,19 +1,10 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
-import { PlusCircle, AlertTriangle, QrCode, X, Info, Flame } from 'lucide-react'
-import Modal from '../shared/Modal'
+import { useQRScanner } from '../../hooks/useQRScanner'
+import { PlusCircle, AlertTriangle, QrCode, X, Info } from 'lucide-react'
 import ArticleAutocomplete from '../shared/ArticleAutocomplete'
-
-function loadJsQR() {
-  return new Promise((resolve) => {
-    if (window.jsQR) { resolve(window.jsQR); return }
-    const s = document.createElement('script')
-    s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js'
-    s.onload = () => resolve(window.jsQR)
-    document.head.appendChild(s)
-  })
-}
+import ArticleInfoModal from '../shared/ArticleInfoModal'
 
 export default function EntreePage() {
   const { user } = useAuth()
@@ -26,127 +17,69 @@ export default function EntreePage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-
-  // Popup info article
   const [showInfo, setShowInfo] = useState(false)
 
-  // QR scan
-  const [scanning, setScanning] = useState(false)
-  const [scanError, setScanError] = useState('')
-  const [scanMsg, setScanMsg] = useState('')
-  const videoRef = useRef(null)
-  const canvasRef = useRef(null)
-  const streamRef = useRef(null)
-  const rafRef = useRef(null)
+  const { scanning, scanError, scanMsg, videoRef, canvasRef, startScan, stopScan } = useQRScanner({
+    bougies,
+    onFound: (found) => { setSelectedBougie(found.id); setError(''); setSuccess('') },
+  })
 
   useEffect(() => {
     async function load() {
-      const [{ data: l }, { data: b }] = await Promise.all([
+      const [{ data: l, error: le }, { data: b, error: be }] = await Promise.all([
         supabase.from('lieux').select('*').order('nom'),
-        supabase.from('bougies')
-          .select('*, familles(nom), sous_familles(nom)')
-          .order('nom'),
+        supabase.from('bougies').select('*, familles(nom), sous_familles(nom)').order('nom'),
       ])
+      if (le || be) { setError('Erreur de chargement des données.'); return }
       setLieux(l || [])
       setBougies(b || [])
     }
     load()
   }, [])
 
-  const stopScan = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current)
-    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop())
-    streamRef.current = null
-    setScanning(false)
-  }, [])
-
-  useEffect(() => () => stopScan(), [stopScan])
-
-  async function startScan() {
-    setScanError(''); setScanMsg('Ouverture de la caméra…'); setScanning(true)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-      streamRef.current = stream
-      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play() }
-      setScanMsg('Pointez vers un QR code…')
-      const jsQR = await loadJsQR()
-      scanFrame(jsQR)
-    } catch (e) {
-      setScanError('Impossible d\'accéder à la caméra : ' + e.message)
-      setScanning(false)
-    }
-  }
-
-  function scanFrame(jsQR) {
-    const video = videoRef.current
-    const canvas = canvasRef.current
-    if (!video || !canvas || !streamRef.current) return
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      canvas.width = video.videoWidth; canvas.height = video.videoHeight
-      const ctx = canvas.getContext('2d')
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const code = jsQR(imageData.data, imageData.width, imageData.height)
-      if (code) {
-        const texte = code.data.trim()
-        const found = bougies.find(b =>
-          b.nom.toLowerCase() === texte.toLowerCase() ||
-          texte.toLowerCase().includes(b.nom.toLowerCase())
-        )
-        if (found) {
-          setSelectedBougie(found.id)
-          setScanMsg('✓ Article détecté : ' + found.nom)
-          stopScan(); setError(''); setSuccess('')
-        } else {
-          setScanMsg('QR lu : "' + texte + '" — article non trouvé')
-          rafRef.current = requestAnimationFrame(() => scanFrame(jsQR))
-        }
-        return
-      }
-    }
-    rafRef.current = requestAnimationFrame(() => scanFrame(jsQR))
-  }
-
-  const nomBougie = bougies.find(b => b.id === selectedBougie)?.nom
   const selectedArticle = bougies.find(b => b.id === selectedBougie)
-  const nomLieu   = lieux.find(l => l.id === selectedLieu)?.nom
-  const qteNum    = Number(qte)
-
+  const nomBougie = selectedArticle?.nom
+  const nomLieu = lieux.find(l => l.id === selectedLieu)?.nom
+  const qteNum = Number(qte)
 
   async function handleEntree() {
     setError(''); setSuccess('')
     if (!selectedLieu || !selectedBougie) { setError('Sélectionne un lieu et un article.'); return }
     if (!qte || qteNum <= 0) { setError('La quantité doit être supérieure à 0.'); return }
     setSaving(true)
+    try {
+      const { data: current } = await supabase
+        .from('stock_par_lieu').select('*')
+        .eq('bougie_id', selectedBougie).eq('lieu_id', selectedLieu).single()
 
-    const { data: current } = await supabase
-      .from('stock_par_lieu').select('*')
-      .eq('bougie_id', selectedBougie).eq('lieu_id', selectedLieu).single()
+      const { error: upsertErr } = await supabase.from('stock_par_lieu').upsert({
+        bougie_id: selectedBougie,
+        lieu_id: selectedLieu,
+        quantite: (current?.quantite || 0) + qteNum,
+        seuil_alerte: current?.seuil_alerte ?? null,
+      }, { onConflict: 'bougie_id,lieu_id' })
+      if (upsertErr) throw upsertErr
 
-    await supabase.from('stock_par_lieu').upsert({
-      bougie_id: selectedBougie,
-      lieu_id: selectedLieu,
-      quantite: (current?.quantite || 0) + qteNum,
-      seuil_alerte: current?.seuil_alerte ?? null,
-    }, { onConflict: 'bougie_id,lieu_id' })
+      await supabase.from('mouvements').insert({
+        bougie_id: selectedBougie,
+        lieu_id: selectedLieu,
+        type: 'entree',
+        quantite: qteNum,
+        motif: motif || null,
+        user_email: user?.email,
+      })
 
-    await supabase.from('mouvements').insert({
-      bougie_id: selectedBougie,
-      lieu_id: selectedLieu,
-      type: 'entree',
-      quantite: qteNum,
-      motif: motif || null,
-      user_email: user?.email,
-    })
-
-    setSuccess('Entrée enregistrée : ' + qteNum + ' × ' + nomBougie + ' → ' + nomLieu + '.')
-    setQte(''); setMotif('')
+      setSuccess('Entrée enregistrée : ' + qteNum + ' × ' + nomBougie + ' → ' + nomLieu + '.')
+      setQte(''); setMotif('')
+    } catch {
+      setError('Erreur lors de l\'enregistrement. Veuillez réessayer.')
+    }
     setSaving(false)
   }
 
   function reset() {
     setSelectedLieu(''); setSelectedBougie(''); setQte(''); setMotif('')
-    setError(''); setSuccess(''); setScanMsg(''); setScanError('')
+    setError(''); setSuccess('')
   }
 
   return (
@@ -159,7 +92,6 @@ export default function EntreePage() {
       <div className="flex-1 overflow-auto p-6">
         <div className="card max-w-lg mx-auto space-y-5">
 
-          {/* Lieu */}
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Lieu de réception</label>
             <select className="input-field" value={selectedLieu}
@@ -169,7 +101,6 @@ export default function EntreePage() {
             </select>
           </div>
 
-          {/* Article — saisie assistée + bouton scan + info */}
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Référence article</label>
             <div className="flex gap-2">
@@ -196,7 +127,6 @@ export default function EntreePage() {
               )}
             </div>
 
-            {/* Zone caméra */}
             {scanning && (
               <div className="mt-3 rounded-xl overflow-hidden border border-stone-200 bg-black relative">
                 <video ref={videoRef} className="w-full max-h-56 object-cover" muted playsInline />
@@ -204,9 +134,7 @@ export default function EntreePage() {
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="w-44 h-44 border-2 border-green-400 rounded-xl opacity-80" />
                 </div>
-                <p className="absolute bottom-2 left-0 right-0 text-center text-white text-xs bg-black/40 py-1">
-                  {scanMsg}
-                </p>
+                <p className="absolute bottom-2 left-0 right-0 text-center text-white text-xs bg-black/40 py-1">{scanMsg}</p>
               </div>
             )}
             {scanError && <p className="text-xs text-red-600 mt-1">{scanError}</p>}
@@ -215,7 +143,6 @@ export default function EntreePage() {
             )}
           </div>
 
-          {/* Quantité */}
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Quantité reçue</label>
             <input type="number" min="1" className="input-field" placeholder="ex : 48"
@@ -223,11 +150,9 @@ export default function EntreePage() {
               disabled={!selectedBougie} />
           </div>
 
-          {/* Motif */}
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Motif (optionnel)</label>
-            <input type="text" className="input-field"
-              placeholder="ex : Livraison fournisseur, Don…"
+            <input type="text" className="input-field" placeholder="ex : Livraison fournisseur, Don…"
               value={motif} onChange={e => setMotif(e.target.value)} />
           </div>
 
@@ -259,29 +184,7 @@ export default function EntreePage() {
         </div>
       </div>
 
-      {/* Popup fiche article */}
-      {showInfo && selectedArticle && (
-        <Modal title={'Fiche article — ' + selectedArticle.nom} onClose={() => setShowInfo(false)} size="sm">
-          <div className="space-y-4">
-            {selectedArticle.photo_url
-              ? <img src={selectedArticle.photo_url} alt={selectedArticle.nom}
-                  className="w-full max-h-48 object-contain rounded-xl border border-stone-100" />
-              : <div className="w-full h-32 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center">
-                  <Flame className="w-10 h-10 text-amber-200" />
-                </div>
-            }
-            {(selectedArticle.familles?.nom || selectedArticle.sous_familles?.nom) && (
-              <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded inline-block">
-                {selectedArticle.familles?.nom}{selectedArticle.sous_familles?.nom ? ' › ' + selectedArticle.sous_familles.nom : ''}
-              </p>
-            )}
-            {selectedArticle.description
-              ? <p className="text-sm text-stone-600">{selectedArticle.description}</p>
-              : <p className="text-sm text-stone-400 italic">Aucune description pour cet article.</p>
-            }
-          </div>
-        </Modal>
-      )}
+      {showInfo && <ArticleInfoModal article={selectedArticle} onClose={() => setShowInfo(false)} />}
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { AlertTriangle, Download, Upload, Plus, MapPin, Globe, ArrowUpDown, Arro
 import Modal from '../shared/Modal'
 import ImportCSV from './ImportCSV'
 import Papa from 'papaparse'
+import { groupByFamille } from '../../utils/groupByFamille'
 
 function SortIcon({ col, sortCol, sortDir }) {
   if (sortCol !== col) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-30 inline" />
@@ -148,34 +149,6 @@ export default function StockPage() {
         alerte: s.seuil_alerte !== null && s.quantite <= s.seuil_alerte,
       }))
     return applySort(rows, sortColLieu, sortDirLieu)
-  }
-
-  // ---- Groupement par famille/sous-famille ----
-  function groupByFamille(rows) {
-    const SANS_FAMILLE = '__sans_famille__'
-    const groups = {}
-    rows.forEach(row => {
-      const bougie = row.bougie || row
-      const famId = bougie.famille_id || SANS_FAMILLE
-      const famNom = bougie.familles?.nom || (famId === SANS_FAMILLE ? 'Sans famille' : famId)
-      const sfId = bougie.sous_famille_id || '__sans_sf__'
-      const sfNom = bougie.sous_familles?.nom || null
-
-      if (!groups[famId]) groups[famId] = { nom: famNom, sousFamilles: {}, order: famId === SANS_FAMILLE ? 'zzz' : famNom }
-      if (!groups[famId].sousFamilles[sfId]) groups[famId].sousFamilles[sfId] = { nom: sfNom, rows: [] }
-      groups[famId].sousFamilles[sfId].rows.push(row)
-    })
-    return Object.values(groups)
-      .sort((a, b) => a.order.localeCompare(b.order))
-      .map(g => ({
-        ...g,
-        sousFamilles: Object.values(g.sousFamilles).sort((a, b) => {
-          if (!a.nom && !b.nom) return 0
-          if (!a.nom) return -1
-          if (!b.nom) return 1
-          return a.nom.localeCompare(b.nom)
-        })
-      }))
   }
 
   // ---- Mouvement entrée (depuis tableau) ----
@@ -419,11 +392,13 @@ export default function StockPage() {
                                       {s ? s.qte : '—'}
                                     </span>
                                     {isAlert && <AlertTriangle className="w-3 h-3 text-red-500 shrink-0" />}
-                                    <button onClick={() => openModal('entree', rowForLieu)}
-                                      title={`Entrée — ${l.nom}`}
-                                      className="ml-1 flex items-center px-1.5 py-0.5 bg-green-100 hover:bg-green-200 text-green-700 rounded text-xs font-medium transition-colors">
-                                      <Plus className="w-3 h-3" />
-                                    </button>
+                                    {isAdmin && (
+                                      <button onClick={() => openModal('entree', rowForLieu)}
+                                        title={`Entrée — ${l.nom}`}
+                                        className="ml-1 flex items-center px-1.5 py-0.5 bg-green-100 hover:bg-green-200 text-green-700 rounded text-xs font-medium transition-colors">
+                                        <Plus className="w-3 h-3" />
+                                      </button>
+                                    )}
                                     {isAdmin && (
                                       <button onClick={() => openModal('edit', rowForLieu)}
                                         title={`Correction — ${l.nom}`}
@@ -529,10 +504,12 @@ export default function StockPage() {
                             <td className="py-3 pr-4 text-right text-stone-500">{s.seuil_alerte ?? '—'}</td>
                             <td className="py-3 text-right">
                               <div className="flex gap-1.5 justify-end">
-                                <button onClick={() => openModal('entree', s)}
-                                  className="flex items-center gap-1 px-2 py-1 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg text-xs font-medium transition-colors">
-                                  <Plus className="w-3 h-3" /> Entrée
-                                </button>
+                                {isAdmin && (
+                                  <button onClick={() => openModal('entree', s)}
+                                    className="flex items-center gap-1 px-2 py-1 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg text-xs font-medium transition-colors">
+                                    <Plus className="w-3 h-3" /> Entrée
+                                  </button>
+                                )}
                                 {isAdmin && (
                                   <button onClick={() => openModal('edit', s)}
                                     title="Correction manuelle du stock"

@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { Plus, Trash2, Bell, Users, MapPin, Flame, UserPlus, Pencil, Image, KeyRound, Tag } from 'lucide-react'
 import Modal from '../shared/Modal'
+import { groupBougiesByFamille } from '../../utils/groupByFamille'
 
 export default function AdminPage() {
   const [tab, setTab] = useState('lieux')
@@ -336,7 +337,12 @@ export default function AdminPage() {
 
   async function deleteUser(profil) {
     if (!window.confirm('Supprimer le compte de ' + profil.email + ' ? Cette action est irréversible.')) return
-    await supabase.from('profils').delete().eq('id', profil.id)
+    const { data: { session } } = await supabase.auth.getSession()
+    const { error } = await supabase.functions.invoke('delete-user', {
+      body: { userId: profil.id },
+      headers: { Authorization: 'Bearer ' + session?.access_token },
+    })
+    if (error) { alert('Erreur lors de la suppression : ' + error.message); return }
     loadAll()
   }
 
@@ -620,28 +626,10 @@ export default function AdminPage() {
                       <tr><td colSpan="5" className="py-8 text-center text-stone-400">Aucune référence</td></tr>
                     )
 
-                    // Groupement par famille puis sous-famille
-                    const SANS_FAM = '__sans_famille__'
-                    const groups = {}
-                    filtered.forEach(b => {
-                      const famId = b.famille_id || SANS_FAM
-                      const famNom = b.familles?.nom || 'Sans famille'
-                      const sfId = b.sous_famille_id || '__sans_sf__'
-                      const sfNom = b.sous_familles?.nom || null
-                      if (!groups[famId]) groups[famId] = { nom: famNom, order: famId === SANS_FAM ? 'zzz' : famNom, sfs: {} }
-                      if (!groups[famId].sfs[sfId]) groups[famId].sfs[sfId] = { nom: sfNom, bougies: [] }
-                      groups[famId].sfs[sfId].bougies.push(b)
-                    })
-
-                    const famGroups = Object.values(groups).sort((a, z) => a.order.localeCompare(z.order))
+                    const famGroups = groupBougiesByFamille(filtered)
                     const rows = []
                     famGroups.forEach(groupe => {
-                      const sfsSorted = Object.values(groupe.sfs).sort((a, b) => {
-                        if (!a.nom && !b.nom) return 0
-                        if (!a.nom) return -1
-                        if (!b.nom) return 1
-                        return a.nom.localeCompare(b.nom)
-                      })
+                      const sfsSorted = groupe.sfs
                       sfsSorted.forEach((sfGroup, sfIdx) => {
                         if (sfIdx === 0) rows.push(
                           <tr key={'fam-' + groupe.nom} className="bg-amber-50 border-b border-amber-100">
@@ -722,25 +710,9 @@ export default function AdminPage() {
                 </thead>
                 <tbody>
                   {(() => {
-                    const SANS_FAM = '__sans_famille__'
-                    const groups = {}
-                    bougies.forEach(b => {
-                      const famId = b.famille_id || SANS_FAM
-                      const famNom = b.familles?.nom || 'Sans famille'
-                      const sfId = b.sous_famille_id || '__sans_sf__'
-                      const sfNom = b.sous_familles?.nom || null
-                      if (!groups[famId]) groups[famId] = { nom: famNom, order: famId === SANS_FAM ? 'zzz' : famNom, sfs: {} }
-                      if (!groups[famId].sfs[sfId]) groups[famId].sfs[sfId] = { nom: sfNom, bougies: [] }
-                      groups[famId].sfs[sfId].bougies.push(b)
-                    })
                     const rows = []
-                    Object.values(groups).sort((a, z) => a.order.localeCompare(z.order)).forEach(groupe => {
-                      Object.values(groupe.sfs).sort((a, b) => {
-                        if (!a.nom && !b.nom) return 0
-                        if (!a.nom) return -1
-                        if (!b.nom) return 1
-                        return a.nom.localeCompare(b.nom)
-                      }).forEach((sfGroup, sfIdx) => {
+                    groupBougiesByFamille(bougies).forEach(groupe => {
+                      groupe.sfs.forEach((sfGroup, sfIdx) => {
                         if (sfIdx === 0) rows.push(
                           <tr key={'fam-' + groupe.nom} className="bg-amber-50 border-b border-amber-100">
                             <td colSpan={2 + lieux.length} className="py-2 px-3">
@@ -1011,14 +983,14 @@ export default function AdminPage() {
               <label className="block text-sm font-medium text-stone-700 mb-1 flex items-center gap-1.5">
                 <KeyRound className="w-4 h-4" /> Nouveau mot de passe
               </label>
-              <input type="text" className="input-field" placeholder="Laisser vide pour ne pas modifier"
-                value={editUserPwd} onChange={e => setEditUserPwd(e.target.value)} />
+              <input type="password" className="input-field" placeholder="Laisser vide pour ne pas modifier"
+                value={editUserPwd} onChange={e => setEditUserPwd(e.target.value)} autoComplete="new-password" />
               <p className="text-xs text-stone-400 mt-1">
                 Si renseigné, copiez cette commande SQL dans Supabase pour l'appliquer :
               </p>
               {editUserPwd.length >= 6 && (
                 <div className="mt-2 bg-stone-800 text-green-300 text-xs rounded-lg px-3 py-2 font-mono break-all select-all">
-                  {`-- Exécuter dans Supabase SQL Editor :\nSELECT auth.update_user(id, '{"password":"${editUserPwd}"}') FROM auth.users WHERE email = '${editUser.email}';`}
+                  {`-- Exécuter dans Supabase SQL Editor :\nSELECT auth.update_user(id, '{"password":"${editUserPwd.replace(/\\/g, '\\\\').replace(/'/g, "''").replace(/"/g, '\\"')}"}') FROM auth.users WHERE email = '${editUser.email.replace(/'/g, "''")}';`}
                 </div>
               )}
             </div>
